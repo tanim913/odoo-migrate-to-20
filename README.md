@@ -27,23 +27,71 @@ files and run shell commands.
 - **Forks are rebased, not ported.** A renamed copy of an Odoo module is rebuilt from the upstream
   Odoo 20 code, keeping your model names and only your real changes.
 
-## Quick start
+## Install in 3 steps
+
+**1. Install the skill.** Run this, then pick your coding agent when it asks:
 
 ```bash
-git clone https://github.com/tanim913/odoo-migrate-to-20.git   # or unzip the folder anywhere
-cd odoo-migrate-to-20
-./install.sh --for all --project ~/work/my-odoo-repo     # every supported tool
-./install.sh --for cursor,agents --project ~/work/my-odoo-repo   # or just the ones you use
-~/.agents/skills/odoo-migrate-to-20/scripts/doctor.sh    # must end with READY
+npx skills add tanim913/odoo-migrate-to-20 -g
 ```
 
-Then, in your coding agent:
+No Node.js? Use the included installer instead:
+
+```bash
+git clone https://github.com/tanim913/odoo-migrate-to-20.git
+cd odoo-migrate-to-20
+./install.sh --for all --project ~/work/my-odoo-repo    # or e.g. --for cursor,claude
+```
+
+`install.sh` also adds the `/odoo-migrate-to-20` command to Cursor, Antigravity, Copilot and
+Gemini CLI.
+
+**2. Check your machine.** Run this once; it must end with `READY`:
+
+```bash
+~/.agents/skills/odoo-migrate-to-20/scripts/doctor.sh
+```
+
+If it says NOT READY, its FAIL lines tell you what is missing: usually an Odoo 20 checkout,
+Python 3.12+ or PostgreSQL 16+ (see [Requirements](#requirements)).
+
+**3. Use it.** In your coding agent, type:
 
 ```
 /odoo-migrate-to-20 ~/work/odoo16/addons/my_module
 ```
 
 or just ask: *"migrate my_module from 16 to 20"*.
+
+<details>
+<summary><b>For AI agents: "install this for my &lt;agent&gt;"</b></summary>
+
+If a user asks you to install this repository for their coding agent, run the full installer for
+that agent, then the doctor, and report its result:
+
+```bash
+git clone --depth 1 https://github.com/tanim913/odoo-migrate-to-20.git /tmp/odoo-migrate-to-20
+/tmp/odoo-migrate-to-20/install.sh --for <target> [--project <the user's repo>]
+~/.agents/skills/odoo-migrate-to-20/scripts/doctor.sh
+```
+
+| The user's agent | `<target>` | Needs `--project` |
+|---|---|---|
+| Claude Code | `claude` | no |
+| Cursor | `cursor` | optional (adds the project command too) |
+| OpenAI Codex | `codex` | no |
+| Google Antigravity | `antigravity` | **yes** (workflow and skill file live in the project) |
+| GitHub Copilot | `copilot` | yes, for the `/odoo-migrate-to-20` prompt file |
+| Gemini CLI | `gemini` | optional |
+| OpenCode or any other skill-aware agent | `agents` | no |
+| An agent that only reads AGENTS.md | `agents-md` | **yes** |
+
+- Several agents at once: `--for cursor,claude`.
+- If `install.sh` cannot run (no bash), use `npx skills add tanim913/odoo-migrate-to-20 -g -a <agent-name>` instead.
+- `install.sh --dry-run` shows the changes first, and `--uninstall` removes them.
+- Don't start a migration until `doctor.sh` prints READY; tell the user what its FAIL lines ask for.
+
+</details>
 
 ## Works in your agent
 
