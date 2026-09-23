@@ -162,7 +162,8 @@ Every stop has a gate, and the route doesn't move on until the gate is met:
    `RESULT: CLEAN`, runs the module's own tests, then drops the database.
 7. **Smoke test** (`smoke_test.py`) runs Odoo's clickbot over the module's apps, opens every other
    menu action and its "new" form, and every website page as public and admin, in headless Chrome.
-   Any browser console error fails the run.
+   Then a short flow tour of the module's main flow proves the migrated code works, not just loads.
+   Any browser console error fails the run, and the screenshots of a failure are handed to the agent.
 8. **Review and report**: a code review of the whole diff (using Odoo's `odoo-review` skill when
    available), then `MIGRATION_20.md` with the decisions, what was not migrated, security findings,
    data-migration notes and what to check by hand.
@@ -178,10 +179,18 @@ Every stop has a gate, and the route doesn't move on until the gate is met:
 | Backend JS | Owl 2 → Owl 3 (`useProps`, `proxy`, `signal.ref`, template `this.`), legacy widgets, three-argument `patch`, services, widget renames, asset bundles |
 | Website | publicWidget → Interactions, jQuery removal, frontend RPC, snippet options → html_builder, website_sale template and route changes, portal entries |
 | Styling | Bootstrap 4 → 5, Font Awesome → Odoo's `oi` icon font |
+| Tests and tours | Odoo 20's strict tour schema (`extra_trigger`, `position`, `edition`, `test: true`…), old `run` helpers, jQuery-only selectors, `tour.register`, steps that relied on the pre-18 implicit click, `phantom_js`, QUnit |
 
-Beyond regular expressions, `scan.py` imports every third-party library with your Odoo 20 Python,
-compares every override of a core method with its Odoo 20 signature, checks every external xmlid
-the module references against Odoo 20, and looks for secrets.
+Beyond regular expressions, `scan.py`:
+- **imports every `odoo.*` import for real** on Odoo 20, so moved helpers and renamed classes are
+  caught. A failing import inside `try/except ImportError` is flagged as silent, because on 20 the
+  fallback branch would always run;
+- **resolves every JS import** to a file in Odoo 20 and checks each imported name is exported. One
+  missing file breaks the whole asset bundle;
+- imports every third-party library with your Odoo 20 Python;
+- compares every override of a core method with its Odoo 20 signature;
+- checks every external xmlid the module references against Odoo 20;
+- looks for secrets.
 
 ## How it proves the result
 
@@ -191,6 +200,9 @@ the module references against Odoo 20, and looks for secrets.
   one console error fails the run. Odoo skips browser tests without Chrome or `websocket-client`;
   `doctor.sh` warns, and `install_test.sh` reports it as a problem, so a skipped run is never
   mistaken for a pass.
+- **A real flow.** A short tour of the module's main flow (create and save the main record,
+  submit the website form…) proves the migrated widgets and interactions work. When a browser test
+  fails, the failing step and the screenshot Odoo took at that moment go straight to the agent.
 - **Control runs.** When a failure looks unrelated to your code, the same smoke test runs on the
   upstream or core module alone. A failure that reproduces there is recorded, not blamed on the
   migration.
@@ -303,12 +315,13 @@ To try the module, add the project folder to your Odoo 20 `addons_path`.
 | `scripts/rebase_fork.py` | rebuild a fork from the upstream Odoo 20 module, renamed, keeping model names |
 | `scripts/run_upgrade_code.sh` | run Odoo's upgrade scripts safely (per script, module only, core-untouched check) |
 | `scripts/scan.py` | find breaking changes (`--json`, `--area`, `--fix-tesc`, `--icons`) |
-| `scripts/install_test.sh` | install (and test) on a throwaway database, summarise problems, drop the database |
-| `scripts/smoke_test.py` | generate a browser smoke-test module (clickbot and website pages) |
+| `scripts/install_test.sh` | install (and test) on a throwaway database, summarise problems and failure screenshots, drop the database (`--tags` re-runs one test) |
+| `scripts/smoke_test.py` | generate a browser smoke-test module (clickbot, website pages, flow tours) |
 
-Knowledge lives in `references/`: 14 files on the upgrade tool, manifest, Python/ORM, field
+Knowledge lives in `references/`: 15 files on the upgrade tool, manifest, Python/ORM, field
 renames, controllers, views, QWeb/reports/mail, security, backend Owl 3, website interactions,
-website builder, website_sale/portal, SCSS/icons, and lessons learned from real migrations.
+website builder, website_sale/portal, SCSS/icons, tests and tours, and lessons learned from real
+migrations.
 
 The scripts also work on their own, without an agent:
 

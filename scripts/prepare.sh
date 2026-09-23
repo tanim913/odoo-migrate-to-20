@@ -43,6 +43,7 @@ cat > .gitignore <<'EOF'
 __pycache__/
 *.pyc
 .migration/*.log
+.migration/screenshots/
 EOF
 git add .gitignore "$MODULE" .migration
 git commit -q -m "[MIG] $MODULE: baseline copy from Odoo $FROM ($SRC)"

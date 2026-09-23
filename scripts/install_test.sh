@@ -2,12 +2,19 @@
 # Install a migrated module on a throwaway Odoo 20 database and report problems.
 # Connection settings come from env.sh (ODOO20_CONF / MIG20_DB_*).
 #
-#   install_test.sh <addons_dir> <module[,module2]> [--tests] [--keep] [--extra-addons DIR] [--db NAME]
+#   install_test.sh <addons_dir> <module[,module2]> [--tests] [--tags SPEC] [--keep] [--extra-addons DIR]
+#                   [--db NAME] [--screencast]
 #
 #   --tests          also run the module's tests (--test-enable --test-tags /<module>)
+#   --tags SPEC      run only these tests (Odoo --test-tags syntax, e.g. /my_module:TestTour.test_flow);
+#                    implies --tests. Fast way to re-run one failing test or tour.
 #   --keep           keep the database afterwards (default: dropped, with its filestore)
 #   --extra-addons   additional addons dir (e.g. the smoke-test module dir)
 #   --db NAME        reuse/force a database name (implies the caller manages it)
+#   --screencast     also record browser tests as video (needs ffmpeg); screenshots on failure are always on
+#
+# Browser test failures leave PNG screenshots; their paths are printed. Open them (they are images) to
+# see what the page looked like when the tour or clickbot failed.
 #
 # Exit: 0 clean, 1 problems found. Full log path is printed.
 set -uo pipefail
@@ -17,10 +24,12 @@ mig20_require
 ADDONS=$(realpath "${1:?addons dir}")
 MODULES=${2:?module(s)}
 shift 2
-TESTS=0; KEEP=0; EXTRA=""; DB=""
+TESTS=0; KEEP=0; EXTRA=""; DB=""; TAGS=""; SCREENCAST=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --tests) TESTS=1;;
+        --tags) TAGS=$2; TESTS=1; shift;;
+        --screencast) SCREENCAST=1;;
         --keep) KEEP=1;;
         --extra-addons) EXTRA=",$(realpath "$2")"; shift;;
         --db) DB=$2; shift;;
@@ -42,9 +51,18 @@ ARGS=("${MIG20_ODOO_DB_ARGS[@]}"
       --addons-path="$MIG20_CORE_ADDONS,$ADDONS$EXTRA"
       --data-dir="$DATA_DIR" -d "$DB" -i "$MODULES" --stop-after-init
       --http-port="$PORT" --log-level=info)
+SHOTS="$LOGDIR/screenshots"   # Odoo writes <dir>/<db>/screenshots/*.png on browser test failures
 if [ $TESTS = 1 ]; then
-    TAGS=$(echo "$MODULES" | sed 's#\([^,]*\)#/\1#g')
-    ARGS+=(--with-demo --test-enable --test-tags "$TAGS")
+    [ -n "$TAGS" ] || TAGS=$(echo "$MODULES" | sed 's#\([^,]*\)#/\1#g')
+    ARGS+=(--with-demo --test-enable --test-tags "$TAGS" --screenshots="$SHOTS")
+    if [ $SCREENCAST = 1 ]; then
+        command -v ffmpeg >/dev/null || echo "WARN: ffmpeg not found: Odoo keeps raw frames instead of a video"
+        ARGS+=(--screencasts="$SHOTS")
+    fi
+    # keep screenshots out of the project's git history
+    if [ -f "$ADDONS/.gitignore" ] && ! grep -q "^.migration/screenshots/" "$ADDONS/.gitignore"; then
+        echo ".migration/screenshots/" >> "$ADDONS/.gitignore"
+    fi
 fi
 
 echo "DB=$DB  LOG=$LOG"
@@ -66,6 +84,13 @@ FIRST_ERR=$(grep -nE "Traceback|ParseError|ValidationError" "$LOG" | head -1 | c
 if [ -n "$FIRST_ERR" ]; then
     echo "== first error context"
     sed -n "${FIRST_ERR},$((FIRST_ERR+40))p" "$LOG" | cut -c1-300
+fi
+# Browser test failures: which tour step failed, and the screenshots taken at that moment
+TOUR_FAIL=$(grep -nE "Error in schema for TourStep|Tour .* failed|FAILED: \[[0-9]+/[0-9]+\] Tour|→ Step|Step .* failed|clickbot.*(error|failed)" "$LOG" | head -8 || true)
+if [ -n "$TOUR_FAIL" ]; then echo "== browser test failure"; echo "$TOUR_FAIL" | cut -c1-300; fi
+if [ $TESTS = 1 ] && [ -d "$SHOTS/$DB" ]; then
+    PNGS=$(find "$SHOTS/$DB" -type f \( -name '*.png' -o -name '*.mp4' \) 2>/dev/null | sort)
+    if [ -n "$PNGS" ]; then echo "== screenshots / screencasts (open them to see the failing page)"; echo "$PNGS"; fi
 fi
 
 if [ $KEEP = 0 ]; then

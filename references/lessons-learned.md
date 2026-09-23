@@ -79,3 +79,29 @@ detected. If `scan.py` could have caught it, add a rule there too.
   `identity-checked-call`. Verify key create flows in a shell, not only through the UI smoke test.
 - **Signature comparison must ignore keyword-only and positional-only markers.** Core defs use
   `(self, /, *, a, b)`; compare only the positional parameters.
+
+## 2026-09-24: tours, tests and import resolution (checked on 14, 16 and 19 modules and on 20 core)
+
+- **Tours break in four quiet ways on 20.** A strict schema rejects old step keys (`extra_trigger`,
+  `position`, `edition`, empty `run` functions). Steps without `run` no longer click (since 18).
+  `run: "text x"` is gone. And a test tour now starts where `start_tour()` opens, not at its
+  registered `url` (that redirect ended in 20). `scan.py` area `tests` covers all four; the old
+  16 modules had 30+ such findings each and none showed up as an install error.
+- **Resolve imports instead of listing moved names.** Real-importing every `odoo.*` import on 20
+  found `Form` no longer in `odoo.tests.common`, `odoo.osv`, `check_method_name`, and enterprise
+  classes renamed from `SocialAccountFacebook` to `SocialAccount`. Those last imports sat in
+  `try/except ImportError`, so on 20 the fallback branch would always run and the tests' external-API
+  mocks would silently never apply. Resolving JS imports found missing files (`@mail/model/*`,
+  `@web/views/kanban/kanban_model`) and missing names (`useState`/`useRef` from `@odoo/owl`).
+  - `@odoo/owl` exports come from `owl.js` **plus** the Owl 2 compatibility layer
+    (`web/static/src/owl2/*.js`, `owl.X = ...`).
+  - `@odoo/hoot*` resolve through `@odoo-module alias=` headers.
+- **Check the checker on core.** Running the new checks over 20 core modules first caught three
+  false positives before any user saw them: helper-call arguments treated as steps, `:image`
+  inside `[src^='data:image']`, and the Owl compat names. Do this for every new scanner rule.
+- **Screenshots beat logs for browser failures.** The first flow tour failed on step 1; the failure
+  screenshot showed the home menu at once (the tour `url` redirect is gone). The second showed the
+  form filled but "Property For" empty: selection fields are a `SelectMenu` in 20, not a `<select>`.
+- **One grep per method is too slow.** The override-signature check ran one grep over all of core
+  per method, which took minutes on large modules. One indexed grep of every core `def` brought a
+  full scan down to 3–6 s.

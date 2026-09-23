@@ -156,7 +156,8 @@ line.
 
 QUnit (≤17) became Hoot (18+). `web.qunit_suite_tests` is gone in 20. Old QUnit tests cannot be
 ported mechanically, so drop them from assets and list them in the report as "to rewrite in Hoot".
-Python HttpCase tours still work.
+Python HttpCase tours still run, but Odoo 20 validates tours strictly and a step without `run` no
+longer clicks: see `tests-and-tours.md`.
 
 ## 6. POS
 

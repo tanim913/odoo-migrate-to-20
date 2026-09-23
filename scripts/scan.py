@@ -118,8 +118,6 @@ RULES = [
     # ---- backend js / owl --------------------------------------------------
     ("owl-static-props", "backend-js", "BLOCKER", [JS], "static", r"static\s+(props|defaultProps)\s*=", "static props THROWS in Owl 3 -> props = useProps({...})", "backend-js-owl3.md", ""),
     ("owl-removed-hooks", "backend-js", "BLOCKER", [JS], "static", r"\b(useState|useRef|useExternalListener|useChildSubEnv|onRendered)\s*\(", "Owl 2 hook removed (proxy / signal.ref / useListener)", "backend-js-owl3.md", "owl3 (partial)"),
-    ("owl-bad-compat-import", "backend-js", "BLOCKER", [JS], "static", r"import\s*\{[^}]*\b(useRef|useExternalListener|useComponent|onRendered|useChildSubEnv)\b[^}]*\}\s*from\s*[\"']@web/owl2/utils[\"']",
-     "owl3 script bug: @web/owl2/utils does not export this", "upgrade-code-tool.md", ""),
     ("owl-custom-directive", "backend-js", "BLOCKER", [XML, JS], "static", r"t-custom-(ref|model)\b", "t-custom-ref/model undefined in 20 -> signal.ref()/signal()", "upgrade-code-tool.md", ""),
     ("owl-tmodel-tref", "backend-js", "RUNTIME", [XML, JS], "static", r"t-(model|ref)=\"(?!this\.)", "t-model/t-ref must target a signal on this", "backend-js-owl3.md", ""),
     ("owl-env-debug", "backend-js", "BLOCKER", [JS, XML], "static", r"env\.(debug|isSmall)\b", "env.debug / env.isSmall throw in 20", "backend-js-owl3.md", ""),
@@ -133,7 +131,15 @@ RULES = [
     ("tmpl-owl1", "backend-js", "WARN", [XML], "static", r"owl=\"1\"", "owl=\"1\" obsolete", "backend-js-owl3.md", ""),
     ("tmpl-tesc-static", "backend-js", "WARN", [XML, JS], "static", r"\bt-(esc|raw)\s*=", "t-esc/t-raw in Owl template -> t-out", "backend-js-owl3.md", "owl3 (t-esc)"),
     ("tmpl-tslot-portal", "backend-js", "WARN", [XML, JS], "static", r"\bt-(slot|portal)\s*=", "t-slot -> t-call-slot, t-portal -> Portal", "backend-js-owl3.md", "owl3"),
-    ("qunit-tests", "backend-js", "WARN", [JS], "static", r"QUnit\.(module|test)|web\.qunit_suite_tests", "QUnit removed in 20 (Hoot)", "backend-js-owl3.md", ""),
+    ("qunit-tests", "backend-js", "WARN", [JS], "static", r"QUnit\.(module|test)|web\.qunit_suite_tests", "QUnit removed in 20 (Hoot)", "tests-and-tours.md", ""),
+    # ---- tests / tours (step keys, run helpers and tour options are checked by tour_checks) ------
+    ("tour-legacy-register", "tests", "RUNTIME", [JS], "static", r"\btour\.register\(|['\"]web_tour\.tour['\"]|\bweb_tour\.tour_utils\b",
+     "legacy tour.register -> registry.category(\"web_tour.tours\").add(name, {url, steps: () => [...]})", "tests-and-tours.md", ""),
+    ("tour-anchor-jquery", "tests", "RUNTIME", [JS], "static", r"this\.\$anchor\b|\bactions\.(auto|text|text_blur|remove_text|drag_and_drop_native)\(",
+     "run() gets {anchor: Element} + TourHelpers in 20: this.$anchor / actions.text / actions.auto are gone", "tests-and-tours.md", ""),
+    ("py-phantom-js", "tests", "BLOCKER", [PY], "any", r"\bphantom_(js|run)\(", "phantom_js removed -> start_tour / browser_js", "tests-and-tours.md", ""),
+    ("py-tour-old-ready", "tests", "RUNTIME", [PY], "any", r"odoo\.__DEBUG__|web_tour\.tour['\"]\]|\.tours\.\w+\.ready",
+     "old tour ready= expression: drop ready= (start_tour waits on odoo.isTourReady(name))", "tests-and-tours.md", ""),
     # ---- website / public js ----------------------------------------------
     ("public-widget", "website-js", "BLOCKER", [JS], "static", r"publicWidget|public_widget|web\.public\.widget", "publicWidget removed -> Interaction", "website-interactions.md", ""),
     ("jquery", "website-js", "BLOCKER", [JS], "static", r"(?<![\w$])\$\(|\bjQuery\b|\.\$el\b|\$target\b|\$\.ajax|\$\.fn\b", "jQuery removed in 20", "website-interactions.md", ""),
@@ -288,6 +294,24 @@ def python_import_checks(module: Path):
     return findings
 
 
+_CORE_DEFS = None
+
+
+def _core_defs():
+    """name -> ["file:line:    def name(args...", ...] for every method defined in Odoo 20 core/enterprise (one grep)."""
+    global _CORE_DEFS
+    if _CORE_DEFS is None:
+        import subprocess
+        _CORE_DEFS = {}
+        out = subprocess.run(["grep", "-rnE", "--include=*.py", r"^\s+def [A-Za-z_]\w*\(", *map(str, CORE_PY_DIRS)],
+                             capture_output=True, text=True).stdout if CORE_PY_DIRS else ""
+        for line in out.splitlines():
+            m = re.search(r"def ([A-Za-z_]\w*)\(", line)
+            if m:
+                _CORE_DEFS.setdefault(m.group(1), []).append(line)
+    return _CORE_DEFS
+
+
 def override_signature_checks(module: Path):
     """Methods overriding an Odoo 20 core method with a different positional signature."""
     import subprocess
@@ -316,8 +340,7 @@ def override_signature_checks(module: Path):
                 if fn.name.startswith("__"):
                     continue
                 ours = [a.arg for a in fn.args.posonlyargs + fn.args.args]
-                cmd = ["grep", "-rn", "--include=*.py", "-E", rf"^\s+def {re.escape(fn.name)}\(", *map(str, CORE_PY_DIRS)]
-                hits = subprocess.run(cmd, capture_output=True, text=True).stdout.splitlines()
+                hits = _core_defs().get(fn.name, [])
                 if not hits:
                     if fn.name.startswith("_") and not any(fn.name.startswith(p) for p in ("_compute_", "_inverse_", "_search_", "_onchange_", "_check_", "_get_", "_prepare_", "_default_")):
                         findings.append(dict(rule="override-gone", area="python", severity="WARN",
@@ -440,8 +463,410 @@ def identity_checked_calls(module: Path):
     return findings
 
 
+def _static_js(module: Path):
+    for path in sorted((module / "static").rglob("*.js")) if (module / "static").is_dir() else []:
+        rel = path.relative_to(module)
+        if rel.parts[:2] != ("static", "lib") and "node_modules" not in rel.parts:
+            yield path, rel
+
+
+def js_objects(src: str):
+    """Rough JS scan: every {...} with its top-level keys, e.g. {"start": 10, "keys": {"trigger": (pos, next_char)}}.
+    Skips strings, template literals and comments; good enough for tour step objects."""
+    objs, stack, i, n = [], [], 0, len(src)
+    while i < n:
+        c = src[i]
+        if c in "\"'`":
+            j = i + 1
+            while j < n and src[j] != c:
+                j += 2 if src[j] == "\\" else 1
+            i = j + 1
+            continue
+        if src.startswith("//", i):
+            i = src.find("\n", i) if src.find("\n", i) != -1 else n
+            continue
+        if src.startswith("/*", i):
+            i = src.find("*/", i + 2) + 2 if src.find("*/", i + 2) != -1 else n
+            continue
+        top = stack[-1] if stack else None
+        if c in "{[(":
+            frame = {"kind": c, "start": i, "keys": {}, "expect": c == "{", "parent": top["kind"] if top else ""}
+            stack.append(frame)
+            if c == "{":
+                objs.append(frame)
+        elif c in "}])":
+            if stack:
+                stack.pop()
+        elif c == "," and top and top["kind"] == "{":
+            top["expect"] = True
+        elif top and top["kind"] == "{" and top["expect"] and (c.isalpha() or c in "_$"):
+            m = re.compile(r"(?:async\s+)?([A-Za-z_$][\w$]*)\s*([:(])").match(src, i)
+            if m:
+                top["keys"][m.group(1)] = (i, src[m.end():m.end() + 40].lstrip()[:1], src[m.end():m.end() + 200])
+            top["expect"] = False
+        elif not c.isspace():
+            if top and top["kind"] == "{":
+                top["expect"] = False
+        i += 1
+    return objs
+
+
+_TOUR_SCHEMA = None
+
+
+def _tour_schema():
+    """Allowed tour-step keys, tour option keys and run helpers, read from Odoo 20's web_tour."""
+    global _TOUR_SCHEMA
+    if _TOUR_SCHEMA is None:
+        steps, tour, helpers = set(), set(), set()
+        base = SERVER20 / "addons/web_tour/static/src" if SERVER20 else None
+        plugin = base / "tour_plugin.js" if base else None
+        if plugin and plugin.exists():
+            text = plugin.read_text()
+            for m in re.finditer(r"const stepSchema\w*\s*=\s*\{(.*?)\n\};", text, re.S):
+                steps |= set(re.findall(r"^\s{4}(\w+)\s*:", m.group(1), re.M))
+            m = re.search(r"const tourSchema\s*=\s*\{(.*?)\n\};", text, re.S)
+            tour = set(re.findall(r"^\s{4}(\w+)\s*:", m.group(1), re.M)) if m else set()
+            for f in (base / "tour_helpers").glob("*.js"):
+                helpers |= set(re.findall(r"^\s{4}(?:async\s+)?([a-zA-Z]\w*)\s*\(", f.read_text(), re.M))
+            helpers -= {"constructor", "get", "if", "for", "while", "switch"}
+        _TOUR_SCHEMA = (steps, tour, helpers)
+    return _TOUR_SCHEMA
+
+
+TOUR_KEY_HINTS = {
+    "extra_trigger": "make it a separate step (trigger only) before this one, or fold it into the trigger (:has(), parent selector)",
+    "in_modal": "scope the trigger: '.modal ...'",
+    "position": "rename to tooltipPosition",
+    "edition": "isActive: ['community'] or ['enterprise']",
+    "mobile": "isActive: ['mobile'] or ['desktop']",
+    "auto": "isActive: ['auto']",
+    "shadow_dom": "use the :shadow pseudo-selector in the trigger",
+    "isCheck": "drop it: a step without run only waits for its trigger",
+    "allowInvisible": "use :not(:visible) or :hidden in the trigger",
+    "allowDisabled": "drop it (or wait with :enabled)",
+    "consumeEvent": "drop it",
+    "noPrepend": "drop it",
+    "width": "drop it",
+}
+
+
+def tour_checks(module: Path):
+    """Odoo 20 validates tours strictly (web_tour/static/src/tour_plugin.js): unknown step/tour keys log a
+    console.error, which fails the HttpCase. Also flags string run helpers that no longer exist and steps
+    that relied on the pre-18 implicit click."""
+    steps_ok, tour_ok, helpers = _tour_schema()
+    if not steps_ok:
+        return []
+    dom_js = SERVER20 / "addons/web/static/lib/hoot-dom/helpers/dom.js"
+    hoot_pseudo = set(re.findall(r'\.set\("([\w-]+)"', dom_js.read_text())) if dom_js.exists() else set()
+    from_file = module.parent / ".migration" / f"{module.name}.from"
+    src_ver = from_file.read_text().strip() if from_file.exists() else ""
+    if not src_ver:  # not prepared by prepare.sh: 16.0.1.0.0 style manifest version
+        m = re.search(r"""['"]version['"]\s*:\s*['"](1[0-9])\.0\.""", (module / "__manifest__.py").read_text(errors="replace")) \
+            if (module / "__manifest__.py").exists() else None
+        src_ver = f"{m.group(1)}.0" if m else ""
+    if not src_ver:  # /x/odoo16_custom/..., /x/odoo-17/..., /x/16.0/... (same heuristic as prepare.sh)
+        m = re.search(r"(?:odoo[_-]?|v|/)(1[0-9])(?:[._-]0)?(?:[_/-]|$)", str(module))
+        src_ver = f"{m.group(1)}.0" if m else ""
+    implicit_click = bool(src_ver) and float(src_ver) < 18
+    findings = []
+
+    def add(path, src, pos, sev, rule, msg):
+        line = src.count("\n", 0, pos) + 1
+        findings.append(dict(rule=rule, area="tests", severity=sev, file=str(path), line=line,
+                             text=src.splitlines()[line - 1].strip()[:160], message=msg, ref="tests-and-tours.md", auto=""))
+
+    for path, rel in _static_js(module):
+        src = path.read_text(errors="replace")
+        if not ("web_tour" in src or "tour" in str(rel).lower()):
+            continue
+        for obj in js_objects(src):
+            keys = obj["keys"]
+            if "trigger" in keys and obj["parent"] != "(" and "steps" not in keys:
+                for k, (pos, _, _) in keys.items():
+                    if k not in steps_ok:
+                        hint = TOUR_KEY_HINTS.get(k, "not a tour step key in 20")
+                        add(rel, src, pos, "RUNTIME", "tour-step-key", f"step key '{k}' fails the 20 step schema: {hint}")
+                tpos, _, trest = keys["trigger"]
+                tm = re.match(r"\s*([\"'`])(.*?)\1", trest)
+                if tm:
+                    bad = [b for b in re.findall(r":(input|button|text|odd|even|gt\(|lt\(|parent|header|animated|image|file|password|radio|checkbox|submit|reset)(?![\w-])", re.sub(r"\[[^\]]*\]|'[^']*'|\"[^\"]*\"", "", tm.group(2)))
+                           if b.rstrip("(") not in hoot_pseudo]
+                    if bad:
+                        add(rel, src, tpos, "RUNTIME", "tour-jquery-selector",
+                            f"jQuery-only selector :{bad[0].rstrip('(')} in trigger: 20 tours use hoot-dom selectors (CSS + :contains :has :visible :hidden :first :last :eq :iframe :shadow :empty :selected :value)")
+                if "run" in keys:
+                    pos, nxt, rest = keys["run"]
+                    if re.match(r"\s*(function\s*\(\s*\)\s*\{\s*\}|\(\s*\)\s*=>\s*\{\s*\}|\)\s*\{\s*\})", rest):
+                        add(rel, src, pos, "RUNTIME", "tour-empty-run",
+                            "empty run function fails the 20 step schema: delete run (a step without run only waits for its trigger)")
+                    m = re.match(r"\s*([\"'`])(.*?)\1", rest)
+                    if m:
+                        for todo in m.group(2).split("&&"):
+                            action = re.match(r"\s*(\w*)", todo).group(1)
+                            if action and action not in helpers:
+                                new = {"text": "edit", "text_blur": "edit … && click body", "auto": "click", "drag_and_drop_native": "drag_and_drop"}.get(action)
+                                add(rel, src, pos, "RUNTIME", "tour-run-helper",
+                                    f"run helper '{action}' does not exist in 20" + (f" -> '{new}'" if new else ""))
+                elif implicit_click:
+                    add(rel, src, keys["trigger"][0], "WARN", "tour-implicit-click",
+                        f"no run: on Odoo {src_ver} this step clicked its trigger; since 18 it only waits. Add run: \"click\" if the tour needs it")
+            if "steps" in keys:
+                pos, nxt, _ = keys["steps"]
+                if nxt == "[" and "web_tour.tours" in src[max(0, obj["start"] - 300):obj["start"]]:
+                    add(rel, src, pos, "RUNTIME", "tour-steps-array", "steps must be a function in 20: steps: () => [...]")
+                if "url" in keys and rel.parts[:2] == ("static", "tests") and "web_tour.tours" in src[max(0, obj["start"] - 300):obj["start"]]:
+                    add(rel, src, keys["url"][0], "RUNTIME", "tour-url-ignored",
+                        "Odoo 20 ignores the tour's url when a test starts it (up to 19 it redirected there): "
+                        "pass that url to start_tour(url, name) in the Python test")
+                if tour_ok and "web_tour.tours" in src[max(0, obj["start"] - 300):obj["start"]]:
+                    for k, (kpos, _, _) in keys.items():
+                        if k not in tour_ok:
+                            add(rel, src, kpos, "RUNTIME", "tour-option-key",
+                                f"tour option '{k}' fails the 20 tour schema (only {', '.join(sorted(tour_ok))}): "
+                                + ("drop it" if k in ("test", "sequence", "wait_for", "checkDelay", "rainbowMan", "saveAs") else "move it"))
+    return findings
+
+
+# ---- import resolution --------------------------------------------------------------------------
+
+_JS_DEFINED = None
+_JS_ALIASES = None
+_JS_EXPORTS = {}
+
+
+def _js_defined_names():
+    """Module names declared with odoo.define(...) in core libs (e.g. @odoo/owl)."""
+    global _JS_DEFINED
+    if _JS_DEFINED is None:
+        import subprocess
+        roots = [str(p) for p in CORE20_ADDONS]
+        out = subprocess.run(["grep", "-rhoE", "--include=*.js", r"odoo\.define\(\s*[\"'][^\"']+[\"']", *roots],
+                             capture_output=True, text=True).stdout if roots else ""
+        _JS_DEFINED = set(re.findall(r"[\"']([^\"']+)[\"']", out))
+    return _JS_DEFINED
+
+
+def _js_aliases():
+    """`/** @odoo-module alias=@odoo/hoot */` headers: alias -> file (e.g. @odoo/hoot, @odoo/hoot-dom)."""
+    global _JS_ALIASES
+    if _JS_ALIASES is None:
+        import subprocess
+        roots = [str(p) for p in CORE20_ADDONS]
+        out = subprocess.run(["grep", "-rnoE", "--include=*.js", r"@odoo-module\s+alias=[^ *]+", *roots],
+                             capture_output=True, text=True).stdout if roots else ""
+        _JS_ALIASES = {}
+        for line in out.splitlines():
+            path, _, rest = line.partition(":")
+            _JS_ALIASES.setdefault(rest.split("alias=")[-1].strip(), Path(path))
+    return _JS_ALIASES
+
+
+def _resolve_js(spec: str, module: Path, importer: Path):
+    """Path of the file an import points to, None if it cannot exist, "?" if it is not a file we can check."""
+    if spec in _js_aliases():
+        return _js_aliases()[spec]
+    if spec.startswith("."):
+        base = (importer.parent / spec).resolve()
+    elif spec.startswith("@"):
+        addon, _, rest = spec[1:].partition("/")
+        roots = [module.parent] + CORE20_ADDONS
+        adir = next((r / addon for r in roots if (r / addon / "__manifest__.py").exists()), None)
+        if adir is None:
+            return "?" if spec in _js_defined_names() or not CORE20_ADDONS else None
+        if rest.startswith("../"):
+            base = adir / "static" / rest[3:]
+        else:
+            base = adir / "static" / "src" / rest
+    else:
+        return "?"  # bare specifiers (luxon, chart.js...) come from odoo.define'd libs
+    for cand in (base.with_name(base.name + ".js"), base / "index.js", base):
+        if cand.is_file():
+            return cand
+    return "?" if spec in _js_defined_names() else None
+
+
+def _js_exports(path: Path, module: Path, depth=0):
+    """Names a JS module exports, or None when unknown (re-export chains, odoo.define)."""
+    key = str(path)
+    if key in _JS_EXPORTS:
+        return _JS_EXPORTS[key]
+    src = path.read_text(errors="replace")
+    names = set(re.findall(r"^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function\*?|class|const|let|var)\s+([\w$]+)", src, re.M))
+    for block in re.findall(r"export\s*\{([^}]*)\}", src):
+        for part in block.split(","):
+            part = part.strip()
+            if part:
+                names.add(part.split(" as ")[-1].strip())
+    for m in re.finditer(r"export\s+(?:const|let|var)\s+([\w$]+)\s*=.*?,\s*([\w$]+)\s*=", src):
+        names.update(m.groups())
+    for star in re.findall(r"export\s*\*\s*from\s*[\"']([^\"']+)[\"']", src):
+        target = _resolve_js(star, module, path)
+        sub = _js_exports(target, module, depth + 1) if isinstance(target, Path) and depth < 4 else None
+        if sub is None:
+            _JS_EXPORTS[key] = None
+            return None
+        names |= sub
+    if path.name == "owl.js":  # esbuild bundle: __export(index_exports, { App: () => App, ... })
+        m = re.search(r"__export\(index_exports,\s*\{(.*?)\}\);", src, re.S)
+        names = set(re.findall(r"^\s*([\w$]+):\s*\(\)\s*=>", m.group(1), re.M)) if m else None
+        compat = path.parents[2] / "src" / "owl2"  # web/static/src/owl2: Owl 2 names put back on `owl`
+        if names is not None and compat.is_dir():
+            for f in compat.glob("*.js"):
+                names |= set(re.findall(r"^owl\.([\w$]+)\s*=", f.read_text(errors="replace"), re.M))
+    if "odoo.define(" in src and not names:
+        names = None
+    _JS_EXPORTS[key] = names
+    return names
+
+
+def js_import_checks(module: Path):
+    """Every import in the module's JS must resolve to a file that exists in Odoo 20 (or in this project), and
+    every named import must be exported there. A missing file breaks the whole asset bundle
+    ("missing dependencies"); a missing name is undefined at runtime."""
+    if not CORE20_ADDONS:
+        return []
+    owl_js = next((p / "web/static/lib/owl/owl.js" for p in CORE20_ADDONS if (p / "web/static/lib/owl/owl.js").exists()), None)
+    rx = re.compile(r"^\s*(?:import|export)\s+([^;]*?)\s*from\s*[\"']([^\"']+)[\"']|^\s*import\s*[\"']([^\"']+)[\"']", re.M | re.S)
+    findings = []
+    for path, rel in _static_js(module):
+        src = path.read_text(errors="replace")
+        for m in rx.finditer(src):
+            what, spec = (m.group(1) or ""), (m.group(2) or m.group(3))
+            line = src.count("\n", 0, m.start(2) if m.group(2) else m.start(3)) + 1
+            text = src.splitlines()[line - 1].strip()[:160]
+            target = owl_js if spec == "@odoo/owl" and owl_js else _resolve_js(spec, module, path)
+            if target is None:
+                findings.append(dict(rule="js-import-missing", area="backend-js", severity="BLOCKER", file=str(rel), line=line,
+                                     text=text, message=f"'{spec}' does not exist in Odoo 20: the whole asset bundle fails to load. Find where it moved",
+                                     ref="backend-js-owl3.md", auto=""))
+                continue
+            if not isinstance(target, Path):
+                continue
+            named = re.search(r"\{([^}]*)\}", what)
+            if not named or what.lstrip().startswith("*"):
+                continue
+            exports = _js_exports(target, module)
+            if exports is None:
+                continue
+            missing, named_as = [], {}
+            for part in named.group(1).split(","):
+                name = part.strip().split(" as ")[0].strip()
+                named_as[name] = part.strip().split(" as ")[-1].strip()
+                if name and name != "default" and name not in exports:
+                    missing.append(name)
+            if missing:
+                body = src[:m.start()] + src[m.end():]
+                used = [n for n in missing
+                        if re.search(rf"(?<![\w$.]){re.escape(named_as.get(n, n))}(?![\w$])", body)]
+                if used:
+                    findings.append(dict(rule="js-import-name", area="backend-js", severity="BLOCKER", file=str(rel), line=line,
+                                         text=text, message=f"'{spec}' does not export {', '.join(used)} in Odoo 20 (undefined at runtime): "
+                                                           "grep the 20 source for the new name/location", ref="backend-js-owl3.md", auto=""))
+                else:
+                    findings.append(dict(rule="js-import-name", area="backend-js", severity="WARN", file=str(rel), line=line,
+                                         text=text, message=f"'{spec}' does not export {', '.join(missing)} in Odoo 20; unused here: delete the import",
+                                         ref="backend-js-owl3.md", auto=""))
+    return findings
+
+
+def py_odoo_import_checks(module: Path):
+    """Every `odoo.*` import must work on Odoo 20: really imported with ODOO20_PYTHON, so re-exports count."""
+    import subprocess
+    if not SERVER20 or not PY20 or not Path(PY20).exists():
+        return []
+    own = {module.name} | {p.name for p in module.parent.iterdir() if (p / "__manifest__.py").exists()}
+    wanted = {}  # (modname, name or None) -> first (file, line, guarded)
+    for path in module.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        try:
+            tree = ast.parse(path.read_text(errors="replace"))
+        except SyntaxError:
+            continue
+        guarded = set()  # imports inside `try: ... except ImportError` (or broader)
+        for t in ast.walk(tree):
+            if isinstance(t, ast.Try) and any(h.type is None or any(
+                    getattr(n, "id", "") in ("ImportError", "ModuleNotFoundError", "Exception")
+                    for n in ast.walk(h.type)) for h in t.handlers):
+                guarded |= {id(n) for stmt in t.body for n in ast.walk(stmt)}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module and node.module.split(".")[0] == "odoo":
+                items = [(node.module, a.name) for a in node.names if a.name != "*"]
+            elif isinstance(node, ast.Import):
+                items = [(a.name, None) for a in node.names if a.name.split(".")[0] == "odoo"]
+            else:
+                continue
+            for mod, name in items:
+                parts = mod.split(".")
+                if len(parts) > 2 and parts[1] == "addons" and parts[2] in own:
+                    continue
+                wanted.setdefault((mod, name), (path.relative_to(module), node.lineno, id(node) in guarded))
+    if not wanted:
+        return []
+    probe = r'''
+import importlib, json, sys
+import odoo.init  # sets odoo._, odoo._lt, odoo.SUPERUSER_ID, odoo.Command like a running server
+import odoo.addons
+for p in json.loads(sys.argv[1]):
+    if p not in odoo.addons.__path__:
+        odoo.addons.__path__.append(p)
+res = {}
+for mod, name in json.loads(sys.argv[2]):
+    key = f"{mod}|{name or ''}"
+    try:
+        m = importlib.import_module(mod)
+    except ModuleNotFoundError as e:
+        res[key] = "nomodule" if e.name and mod.startswith(e.name) or (e.name or "").startswith(mod) else f"error: {e}"
+        continue
+    except Exception as e:
+        res[key] = f"error: {type(e).__name__}: {e}"
+        continue
+    if name and not hasattr(m, name):
+        try:
+            importlib.import_module(f"{mod}.{name}")
+        except ModuleNotFoundError:
+            res[key] = "noname"
+            continue
+        except Exception as e:
+            res[key] = f"error: {type(e).__name__}: {e}"
+            continue
+    res[key] = "ok"
+print(json.dumps(res))
+'''
+    addon_roots = [str(p) for p in CORE20_ADDONS]
+    import os
+    env = dict(os.environ, PYTHONPATH=str(SERVER20))
+    try:
+        out = subprocess.run([PY20, "-c", probe, json.dumps(addon_roots), json.dumps(list(wanted))],
+                             capture_output=True, text=True, env=env, cwd=str(SERVER20), timeout=600).stdout
+        res = json.loads(out.strip().splitlines()[-1])
+    except Exception:  # noqa: BLE001
+        return []
+    findings = []
+    for (mod, name), (rel, line, is_guarded) in sorted(wanted.items(), key=lambda x: (str(x[1][0]), x[1][1])):
+        status = res.get(f"{mod}|{name or ''}", "ok")
+        if status == "ok":
+            continue
+        full = f"{mod}.{name}" if name else mod
+        if is_guarded and status in ("nomodule", "noname"):
+            sev, msg = "SILENT", (f"'{full}' does not exist in Odoo 20 and the import is inside try/except ImportError: "
+                                  "on 20 the except branch always runs, so the feature is silently off. Import the new name")
+        elif status == "nomodule":
+            sev, msg = "BLOCKER", f"'{mod}' does not exist in Odoo 20: the module fails to import. Grep the 20 source for its new location"
+        elif status == "noname":
+            sev, msg = "BLOCKER", f"'{name}' is not importable from '{mod}' in Odoo 20: find where it moved or what replaced it"
+        else:
+            sev, msg = "WARN", f"could not verify import of '{full}' ({status[:120]})"
+        findings.append(dict(rule="py-odoo-import", area="python", severity=sev, file=str(rel), line=line,
+                             text=f"import {full}", message=msg, ref="python-orm.md", auto=""))
+    return findings
+
+
 def scan(module: Path, area=None):
-    findings = (manifest_checks(module) + python_import_checks(module)
+    findings = (manifest_checks(module) + python_import_checks(module) + py_odoo_import_checks(module)
+                + js_import_checks(module) + tour_checks(module)
                 + override_signature_checks(module) + xmlid_checks(module) + identity_checked_calls(module))
     compiled = [(r, re.compile(r[5], re.M)) for r in RULES]
     for path in iter_files(module):
@@ -469,6 +894,10 @@ def scan(module: Path, area=None):
                 line = lines[lineno - 1].strip() if lineno - 1 < len(lines) else ""
                 findings.append(dict(rule=rid, area=rarea, severity=sev, file=str(rel), line=lineno,
                                      text=line[:160], message=msg, ref=ref, auto=auto))
+    # a specific rule already explains this line: drop the generic import finding
+    specific = {(f["file"], f["line"]) for f in findings if f["rule"] not in ("js-import-name", "js-import-missing", "py-odoo-import")}
+    findings = [f for f in findings if f["rule"] not in ("js-import-name", "js-import-missing", "py-odoo-import")
+                or (f["file"], f["line"]) not in specific]
     if area:
         findings = [f for f in findings if f["area"] == area]
     findings.sort(key=lambda f: (SEVERITY_ORDER[f["severity"]], f["area"], f["file"], f["line"]))

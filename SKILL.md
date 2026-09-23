@@ -6,8 +6,9 @@ description: >
   runs Odoo 20's own upgrade_code scripts safely, scans for every known 14→20 breaking change
   (manifest, Python/ORM, override signatures, renamed xmlids and fields, controllers, views, server
   QWeb t-esc, ir.access security, Owl 3 backend JS, publicWidget→Interactions, jQuery/Font
-  Awesome/Bootstrap 4 removal, website builder, eCommerce, portal, secrets), fixes the rest by hand
-  with parallel per-area subagents, then loops install + headless-browser smoke tests on a throwaway
+  Awesome/Bootstrap 4 removal, website builder, eCommerce, portal, tours and tests, secrets), checks
+  every JS and Python import against the real Odoo 20 source, fixes the rest by hand with parallel
+  per-area subagents, then loops install + headless-browser smoke tests and flow tours on a throwaway
   database until clean, and finishes with a code review.
   Use when the user says "migrate <module> to 20", "make it installable on Odoo 20", "port to v20",
   "upgrade module from 16/17/18 to 20", or invokes /odoo-migrate-to-20.
@@ -15,7 +16,7 @@ compatibility: >-
   Agent-neutral (Agent Skills format). Needs a shell with bash, python3, git and rsync; an Odoo 20
   checkout with a Python 3.12+ venv; PostgreSQL 16+. Chrome/Chromium for browser tests.
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   odoo-target: "20.0"
   odoo-sources: "14.0-19.0"
 ---
@@ -78,6 +79,7 @@ Knowledge files:
 | `website-builder-snippets.md` | snippets, snippet options, themes, header templates |
 | `website-sale-portal.md` | website_sale overrides, cart routes, portal home |
 | `scss-bootstrap-icons.md` | Bootstrap 4 classes, Font Awesome icons, SCSS |
+| `tests-and-tours.md` | `tests/`, `static/tests/`, tours; writing the smoke flow tour; reading browser test failures |
 
 Odoo ships its own guideline skills in `$ODOO20_SERVER/skills/` (`odoo-guidelines`,
 `odoo-web-guidelines`, `odoo-security`, `odoo-review`). Use them for house style and the final
@@ -166,10 +168,17 @@ python3 $S/scan.py <DEST> --icons    # fa-* names to map
 ```
 
 Areas: `manifest python renames controllers views qweb security backend-js website-js website
-website-sale assets scss`.
+website-sale assets scss tests`.
 
 Beyond regexes, the scanner:
 - imports every third-party library with `$ODOO20_PYTHON`;
+- **really imports every `odoo.*` import** on Odoo 20 (moved helpers, renamed enterprise classes).
+  An import inside `try/except ImportError` that fails on 20 is reported SILENT: the except branch
+  would always run;
+- **resolves every JS import** (`@addon/...`, relative, `@odoo/owl`) to a file in Odoo 20 and
+  checks each named import is exported. A missing file breaks the whole asset bundle;
+- validates tours against Odoo 20's strict tour schema: step keys, `run` helpers, selectors, and
+  steps that relied on the pre-18 implicit click;
 - compares every override of a core method with its Odoo 20 signature;
 - checks every external xmlid the module references against Odoo 20;
 - looks for secrets.
@@ -203,6 +212,8 @@ table and the rules below apply either way.
 
 - Split `static/src` by bundle: `web.assets_frontend` and website bundles go to D, the rest to C.
 - Website templates go to D with their JS, because selectors and markup must change together.
+- The `tests` area (tours, `tests/`) is yours, **after** A–D: tour selectors must match the final
+  migrated markup. Follow `tests-and-tours.md`.
 
 Each subagent prompt contains:
 - the module path;
@@ -246,6 +257,10 @@ $S/install_test.sh $MIG20_TARGET_ROOT/<project> <module>
 - Stop after about 8 rounds without progress, and report what blocks.
 - If the module has `tests/`: run `install_test.sh … --tests` and fix the failures. QUnit tests
   can't run in 20: list them as "to rewrite in Hoot".
+- Re-run a single failing test fast with `--tags /<module>:<Class>.<test_method>`.
+- A failed browser test prints the failing tour step and the paths of the PNG screenshots taken at
+  that moment. **Open the screenshots** before guessing: they usually show the cause (an error
+  dialog, the wrong page, an element under a modal).
 - For every new kind of break you had to fix by hand, add a `scan.py` rule or check and a line in
   `lessons-learned.md`.
 
@@ -268,8 +283,17 @@ fails the run.
   on a core flow, a rebased fork), run the same smoke test on the upstream or core module alone:
   `smoke_test.py <upstream_module>`, then `install_test.sh <empty dir> <upstream_module>,$SMOKE_MODULE --tests --extra-addons …`.
   A failure that reproduces there is not a migration defect; record it in the report as such.
-- Also exercise what the smoke test can't: a key create/write flow of the module (for example with
-  `odoo-bin shell` on a `--keep` database). Drop that database afterwards.
+- **Flow tour.** The clickbot proves pages load, not that the migrated code works. When the module
+  has backend JS, frontend JS or a website flow, write one short tour of its main flow. Examples:
+  create and save the main record; submit the website form; add to cart.
+  - Follow "Flow tour for the smoke test" in `tests-and-tours.md`, and take every selector from the
+    migrated templates.
+  - Pass it with `--tour-js <file> --tour '<name>@<start url>'` (append `:public` for website
+    visitors). Odoo 20 starts test tours on that URL, not on the tour's registered `url`.
+  - It stays in the throwaway smoke module. Offer it to the user as a permanent test in the
+    module's `static/tests/tours/`.
+- Flows a tour can't reach (external services, cron, mail gateways): exercise them with
+  `odoo-bin shell` on a `--keep` database, then drop that database.
 
 ### 7. Review
 
