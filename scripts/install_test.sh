@@ -71,8 +71,18 @@ RC=$?
 
 # What counts as a problem. Ignore known-noise warnings from core/env.
 PROBLEMS=$(grep -nE " (ERROR|CRITICAL) |Traceback|Unknown directives|incompatible version|not installable|Some modules are not loaded|invalid addons directory '$ADDONS|FAIL:|ERROR:|[1-9][0-9]* failed, |, [1-9][0-9]* error\(s\)|skipped.*(websocket|Chrome|browser)|websocket-client module is not installed|Chrome.*not found|Failed to load|ParseError|ValidationError|Element .* cannot be located" "$LOG" \
-    | grep -vE "odoo20_custom_addons.*invalid addons directory" || true)
-WARNINGS=$(grep -nE " WARNING " "$LOG" | grep -E "$(echo "$MODULES" | tr ',' '|')|deprecated|Deprecat" \
+    | grep -vE "odoo20_custom_addons.*invalid addons directory" \
+    | python3 -c "
+import re, sys
+mods = set(sys.argv[1].split(','))
+for line in sys.stdin:  # sibling modules in the same addons dir that are not migrated yet are not our problem
+    m = re.search(r'The module (\\w+) has an incompatible version|module (\\w+): not installable', line)
+    if m and (m.group(1) or m.group(2)) not in mods:
+        continue
+    sys.stdout.write(line)
+" "$MODULES" || true)
+# drop the database-name column first: the throwaway DB is named after the module, which would match every line
+WARNINGS=$(grep -nE " WARNING " "$LOG" | awk '{ $5 = ""; print }' | grep -E "$(echo "$MODULES" | tr ',' '|')|deprecated|Deprecat" \
     | grep -vE "Postgres version|http_interface" || true)
 STATE=$(psql "${MIG20_PG_ARGS[@]}" -d "$DB" -Atc "select name||'='||state from ir_module_module where name in ('$(echo "$MODULES" | sed "s/,/','/g")')" 2>/dev/null)
 

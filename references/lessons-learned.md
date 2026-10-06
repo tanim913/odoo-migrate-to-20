@@ -139,3 +139,31 @@ detected. If `scan.py` could have caught it, add a rule there too.
   also matched `t-att-href="appointment.id"` (a QWeb variable), inventing a dependency on the
   enterprise `appointment` module; installing it then broke an unrelated module. Anchor attribute
   names with `(?<![\w-])`.
+
+## 2026-10-06: same project, first batch (OCA queue_job, a login-restriction module, small utilities)
+
+- **A crash in Odoo's converters can pass silently.** `19.4-00-ir-access` reads the manifests and
+  security files of every module on the addons path. One sibling module that still depended on a
+  removed core module, and one ACL CSV line with 7 columns instead of 8, made it crash, so no
+  module got its `ir.access.csv`, while the wrapper still printed OK. `run_upgrade_code.sh` now
+  fails with exit code 4 when a script prints a traceback. Fix manifests (removed `depends`) of
+  all modules before the automatic pass.
+- **The ir-access converter can leave model xmlids** (`module.model_sale_order`, `model_x`) in the
+  `model_id` column, where Odoo 20 needs model names (`sale.order`). `run_upgrade_code.sh` now runs
+  `fix_ir_access_models.py` after it.
+- **Multi-module projects: test from a folder that holds only finished modules.** Sibling modules
+  that are not migrated yet log "incompatible version" warnings. `install_test.sh` now ignores
+  those for modules outside the tested list, but a folder of symlinks to finished modules
+  (`.migration/addons_done/`) is still the cleanest way to install part by part.
+- **Vendor modules: look at every newer upstream branch, not only 20.0.** OCA had a 20.0 branch,
+  but its module was still `installable: False` with 19 code. The project's copy was identical to
+  an old upstream 17 release (diffed against the matching upstream commit), so the module was
+  replaced by upstream 19.0 and only 19→20 was ported: far less work, and upstream's own data
+  migration scripts (`migrations/18.0.*`, `19.0.*`) come along for the real database upgrade.
+  Then compare the feature inventory of the old copy with the new code: features upstream removed
+  or redesigned are recorded, and the project is grepped for callers.
+- **Scanner false positives fixed:** `identity-checked-call` reported every Python `list.remove()`
+  (now `remove`/`enable`/`revoke` count only in an auth context); `override-gone` reported a
+  module's own helpers (now methods of new models, methods the module calls itself, including from
+  cron/server-action code and `getattr` strings, are skipped). Both checked against real cases
+  (an API key `remove()`, removed hooks such as `_message_format`, `_process_notification_data`).

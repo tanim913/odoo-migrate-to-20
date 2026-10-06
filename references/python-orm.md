@@ -40,6 +40,10 @@ and `odoo/models/__init__.py` re-exports it.
 | 20 | `odoo.tools.query.Query` | `odoo.models.Query` | B |
 | 20 | `from odoo.tools import mod10r, street_split` | `from odoo.tools.business_data import ...` | B |
 | 20 | `odoo.registry(db)` | `from odoo.modules.registry import Registry; Registry(db)` | R |
+| 20 | `@tools.ormcache(...)`, `tools.cache` | `@api.ormcache(...)` (`from odoo.api import ormcache`); the old name still works but warns at load | W |
+| 20 | `env.clear()` | `env.transaction.clear()` (or `env.transaction.reset()`) | W |
+| 20 | `from odoo.service.model import PG_CONCURRENCY_ERRORS_TO_RETRY`; `if err.pgcode not in ...` | `from odoo.sql_db import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY`; `if not isinstance(err, PG_CONCURRENCY_EXCEPTIONS_TO_RETRY)` | B |
+| 20 | `@classmethod def _login(cls, db, login, password, user_agent_env)` returning the uid | `def _login(self, credential, user_agent_env)` returning auth info (`{'uid': ...}`); call `super()._login(credential, user_agent_env)`. A check that must log even when the login is refused keeps its own cursor: `with self.env.registry.cursor() as cr:` (was `cls.pool.cursor()`) | R |
 | 17 | `message_post_with_view` / `message_post_with_template` | `message_post_with_source(source_ref, render_values=..., subtype_xmlid=...)` | R |
 | 20 | mail `_track_subtype(init_values)` | `_track_log_get_default_subtype(...)`; confirm the signature in `addons/mail/models/mail_thread.py` | S |
 | 20 | mail `_track_template(changes)` | `_track_template_parameters(tracked_fields)` | S |

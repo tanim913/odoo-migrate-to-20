@@ -16,7 +16,7 @@ compatibility: >-
   Agent-neutral (Agent Skills format). Needs a shell with bash, python3, git and rsync; an Odoo 20
   checkout with a Python 3.12+ venv; PostgreSQL 16+. Chrome/Chromium for browser tests.
 metadata:
-  version: "1.2.0"
+  version: "1.3.0"
   odoo-target: "20.0"
   odoo-sources: "14.0-19.0"
 ---
@@ -116,7 +116,9 @@ review: through your agent's skill mechanism if they are installed, or by readin
 4. Read each manifest's `depends`:
    - A custom dependency must be migrated first, into the same project, bottom-up.
    - A third-party vendor module (OCA, Cybrosys, Emipro, …): ask whether an upstream 20 release
-     exists before migrating it yourself.
+     exists before migrating it yourself. Check every newer upstream branch: if 20.0 is not
+     installable yet but 19.0 is, and the project's copy is unmodified upstream (diff it against
+     the matching upstream commit), start from upstream 19.0 and port only 19→20.
    - A removed or merged core module: see `manifest-and-modules.md`.
 5. Read `references/lessons-learned.md`.
    - Several interdependent modules: first check that the source installs on an empty database of

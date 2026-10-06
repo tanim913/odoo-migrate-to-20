@@ -47,10 +47,16 @@ esac
 
 vlt() { python3 -c "import sys;a,b=(tuple(int(x) for x in s.split('.')[:2]) for s in sys.argv[1:]);sys.exit(0 if a<b else 1)" "$1" "$2"; }
 
-run() {  # run <script> <addons_path> [glob]
-    local glob=${3:-"$MODULE/**/*"}
-    (cd "$SERVER" && PYTHONPATH="$SERVER" "$PY" odoo/cli/upgrade_code.py --script "$1" \
+CRASHED=""
+run() {  # run <script> <addons_path> [glob]; a crash inside the script is recorded, not ignored
+    local glob=${3:-"$MODULE/**/*"} out
+    out=$(cd "$SERVER" && PYTHONPATH="$SERVER" "$PY" odoo/cli/upgrade_code.py --script "$1" \
         --addons-path="$2" --glob "$glob" 2>&1)
+    echo "$out"
+    if echo "$out" | grep -q "^Traceback"; then
+        CRASHED="$CRASHED $1"
+        echo "ERROR: $1 crashed: $(echo "$out" | grep -E '^[A-Za-z]+(Error|Exception)' | tail -1)"
+    fi
 }
 
 for entry in "${SCRIPTS[@]}"; do
@@ -58,7 +64,12 @@ for entry in "${SCRIPTS[@]}"; do
     vlt "$FROM" "$ver" || continue          # only scripts newer than the source version
     echo "== $script"
     if [ "$script" = "19.4-00-ir-access" ]; then
+        # reads the manifest and security files of EVERY module on the path: one removed
+        # dependency or malformed CSV in a sibling module crashes it for all of them
         run "$script" "$ADDONS,$CORE_PATHS"
+        # the converter can leave model xmlids (module.model_x) where Odoo 20 needs model names
+        python3 "$(dirname "$0")/fix_ir_access_models.py" "$ADDONS,$CORE_PATHS" "$MOD_DIR" \
+            || echo "WARNING: some ir.access model ids could not be resolved (see above)"
     else
         run "$script" "$ADDONS"
     fi
@@ -76,4 +87,9 @@ if [ "$BEFORE" != "$AFTER" ]; then
 fi
 rm -f "$STAMP"
 echo "OK: core and enterprise untouched"
+if [ -n "$CRASHED" ]; then
+    echo "FAILED: these scripts crashed, so their changes are missing:$CRASHED" >&2
+    echo "Typical causes: a depends on a removed core module or a malformed CSV in ANY module of $ADDONS (ir-access reads them all). Fix, then re-run." >&2
+    exit 4
+fi
 echo "NEXT: review the WARNING/ERROR lines above (ir-access especially), then run scan.py"

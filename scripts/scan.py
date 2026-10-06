@@ -54,6 +54,14 @@ RULES = [
     ("tools-removed", "python", "BLOCKER", [PY], "any", r"\bpycompat\b|\bustr\(|odoo\.tools\.query\b|from odoo\.tools import[^\n]*\b(mod10r|street_split|ustr|pycompat)\b",
      "removed odoo.tools helper", "python-orm.md", ""),
     ("odoo-registry", "python", "RUNTIME", [PY], "any", r"\bodoo\.registry\(", "odoo.registry() removed -> Registry(db)", "python-orm.md", ""),
+    ("tools-ormcache", "python", "WARN", [PY], "any", r"\btools\.(ormcache|cache)\b|from odoo\.tools import[^\n]*\bormcache\b",
+     "deprecated since 20 (DeprecationWarning at load): @api.ormcache / from odoo.api import ormcache", "python-orm.md", ""),
+    ("env-clear", "python", "WARN", [PY], "any", r"\benv\.clear\(\)",
+     "env.clear() deprecated since 20 -> env.transaction.clear() (or env.transaction.reset())", "python-orm.md", ""),
+    ("pg-concurrency-codes", "python", "BLOCKER", [PY], "any", r"\bPG_CONCURRENCY_ERRORS_TO_RETRY\b",
+     "pgcode tuple removed in 20 -> isinstance(err, odoo.sql_db.PG_CONCURRENCY_EXCEPTIONS_TO_RETRY)", "python-orm.md", ""),
+    ("http-request-class", "python", "BLOCKER", [PY], "any", r"\bhttp\.Request\b",
+     "odoo.http no longer exports Request -> odoo.http.requestlib.Request", "controllers-http.md", ""),
     ("message-post-with", "python", "RUNTIME", [PY], "any", r"message_post_with_(view|template)\(", "-> message_post_with_source", "python-orm.md", ""),
     ("track-hooks", "python", "SILENT", [PY], "any", r"def _track_(subtype|template)\(", "renamed: _track_log_get_default_subtype / _track_template_parameters", "python-orm.md", ""),
     ("test-classes", "python", "BLOCKER", [PY], "any", r"\b(SavepointCase|SingleTransactionCase)\b", "removed test base class -> TransactionCase", "python-orm.md", ""),
@@ -318,6 +326,17 @@ def override_signature_checks(module: Path):
     findings = []
     if not CORE_PY_DIRS:
         return findings
+    # methods the module calls itself (other than through super()) are its own helpers, not core hooks
+    called = set()
+    for p in module.rglob("*.py"):
+        if "__pycache__" not in p.parts:
+            txt = re.sub(r"super\([^)]*\)\.\w+\(", "", p.read_text(errors="replace"))
+            called.update(re.findall(r"\.(\w+)\(", txt))
+            called.update(re.findall(r"""["'](_\w+)["']""", txt))  # getattr(self, "_name") dispatch
+    for p in module.rglob("*.xml"):
+        xml = p.read_text(errors="replace")
+        called.update(re.findall(r'name="(\w+)"', xml))
+        called.update(re.findall(r"\.(\w+)\(", xml))  # server actions / cron code: model._cron_x()
     for path in module.rglob("*.py"):
         if "__pycache__" in path.parts or "tests" in path.parts:
             continue
@@ -326,6 +345,8 @@ def override_signature_checks(module: Path):
         except SyntaxError:
             continue
         for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+            new_model = any(isinstance(st, ast.Assign) and any(getattr(t, "id", "") == "_name" for t in st.targets)
+                            for st in cls.body)
             inherits = []
             for stmt in cls.body:
                 if isinstance(stmt, ast.Assign) and any(getattr(t, "id", "") == "_inherit" for t in stmt.targets):
@@ -342,6 +363,8 @@ def override_signature_checks(module: Path):
                 ours = [a.arg for a in fn.args.posonlyargs + fn.args.args]
                 hits = _core_defs().get(fn.name, [])
                 if not hits:
+                    if new_model or fn.name in called:
+                        continue
                     if fn.name.startswith("_") and not any(fn.name.startswith(p) for p in ("_compute_", "_inverse_", "_search_", "_onchange_", "_check_", "_get_", "_prepare_", "_default_")):
                         findings.append(dict(rule="override-gone", area="python", severity="WARN",
                                              file=str(path.relative_to(module)), line=fn.lineno, text=f"def {fn.name}",
@@ -448,13 +471,19 @@ def identity_checked_calls(module: Path):
     if not names:
         return []
     rx = re.compile(r"\.(" + "|".join(sorted(names)) + r")\(")
+    # names that are also everyday list/set/object methods: only flag them in an auth context,
+    # otherwise every list.remove() is reported
+    ambiguous = {"remove", "enable", "revoke"}
+    auth_ctx = re.compile(r"env\[|res\.users|api_?key|device|totp|passkey|password", re.I)
     findings = []
     for path in module.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue
         for i, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
             m = rx.search(line)
-            if m and not line.lstrip().startswith(("def ", "#")):
+            if m and m.group(1) in ambiguous and not auth_ctx.search(line):
+                continue
+            if m and not line.lstrip().startswith(("def ", "#", ">>>")):
                 findings.append(dict(rule="identity-checked-call", area="python", severity="RUNTIME",
                                      file=str(path.relative_to(module)), line=i, text=line.strip()[:160],
                                      message=f"{m.group(1)}() is @check_identity in Odoo 20: called from code it returns an identity popup "

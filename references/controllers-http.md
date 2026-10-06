@@ -23,6 +23,7 @@ Before writing a new import, confirm it:
 |---|---|---|---|
 | 19 | `@http.route(..., type='json')` | `type='jsonrpc'` ('json' still accepted with a warning). `upgrade_code` only fixes it inside `controllers/` with a trailing comma, so grep for leftovers | W, UC partial |
 | 16 | `request.jsonrequest` | `request.get_json_data()` | R |
+| 20 | `odoo.http.Request` (e.g. `mock.patch.object(http.Request, ...)` in tests) | `odoo.http.requestlib.Request` | B |
 | 19 | `request.cr`, `request.uid`, `request.context` | `request.env.cr`, `request.env.uid`, `request.env.context` | W |
 | **20** | `request.website` | `request.env.website` (in models: `self.env.website`) | R |
 | 20 | `website.get_current_website()` | `self.env.website` | R |
