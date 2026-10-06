@@ -16,7 +16,7 @@ compatibility: >-
   Agent-neutral (Agent Skills format). Needs a shell with bash, python3, git and rsync; an Odoo 20
   checkout with a Python 3.12+ venv; PostgreSQL 16+. Chrome/Chromium for browser tests.
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
   odoo-target: "20.0"
   odoo-sources: "14.0-19.0"
 ---
@@ -119,6 +119,9 @@ review: through your agent's skill mechanism if they are installed, or by readin
      exists before migrating it yourself.
    - A removed or merged core module: see `manifest-and-modules.md`.
 5. Read `references/lessons-learned.md`.
+   - Several interdependent modules: first check that the source installs on an empty database of
+     its own version. Code that only ever installed incrementally often doesn't, and every blocker
+     must be fixed in the migrated code ("The source code may not install on an empty database").
 6. **Fork check:** run `python3 $S/fork_check.py <source_module_dir>`.
    - If it prints `VERDICT: FORK`, the module is a renamed copy of an Odoo (or vendor) module that
      also exists in Odoo 20. Use the **rebase path**: after step 1, run

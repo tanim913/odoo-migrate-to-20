@@ -105,3 +105,37 @@ detected. If `scan.py` could have caught it, add a rule there too.
 - **One grep per method is too slow.** The override-signature check ran one grep over all of core
   per method, which took minutes on large modules. One indexed grep of every core `def` brought a
   full scan down to 3–6 s.
+
+## 2026-10-06: 17→20 multi-module portal/website project (26 interdependent modules)
+
+- **The source code may not install on an empty database at all.** Modules installed one by one
+  over years can point at each other in ways only an incremental history tolerates:
+  - xmlids of modules that are not in `depends` (a menu using another module's action, a view
+    using another module's group or `%(record)d`), including circles (A depends on B while B's
+    views reference A);
+  - core modules used but not declared (models `_inherit`ed or views inherited from loyalty,
+    purchase, survey, product_expiry, …);
+  - load order inside one module (a view uses a field that a later view of the same file adds;
+    one data file's xpath targets markup another file loaded earlier removes);
+  - demo data that fails (a demo user whose password breaks another module's policy, a demo file
+    listed in the manifest that does not exist).
+
+  Check this **before** migrating: try a fresh install of the source on its own version. Every
+  problem found must be fixed in the migrated code (move each cross-reference into the module that
+  owns the target, declare real `depends`), or the 20 install test can never pass.
+- **Hidden circles also break `-u` on the source version.** When B adds views on top of A's views
+  using B's fields, updating A alone fails ("Field … does not exist") because B's models load after
+  A. So "it works in production" can mean "it was never updated since".
+- **Building a comparison database on the source version** when the code cannot fresh-install:
+  1. install all core/enterprise dependencies first (including the undeclared ones) and save that
+     database as a template, so retries skip it;
+  2. install the custom modules from a temporary patched copy (outside the source tree) with only
+     the blocking lines removed or reordered; drop and restore from the template after any failed
+     attempt, because a failed install leaves views and data of half-installed modules behind;
+  3. re-apply the original code with `-u` on the patched modules only, and load any file that still
+     cannot update (see the point above) with `convert_file` from `odoo-bin shell`.
+  Record each patch: it is the list of things the migration must fix.
+- **Reference-detection regexes need attribute boundaries.** A pattern for `ref="module.xmlid"`
+  also matched `t-att-href="appointment.id"` (a QWeb variable), inventing a dependency on the
+  enterprise `appointment` module; installing it then broke an unrelated module. Anchor attribute
+  names with `(?<![\w-])`.
