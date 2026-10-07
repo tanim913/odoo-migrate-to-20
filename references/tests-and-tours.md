@@ -199,3 +199,21 @@ shipped, unless the user wants it in the module's `static/tests/tours`.
    - in any browser: `odoo.startTour("name")` in the console, or `?debug=tests` in the URL.
 
    Never leave `watch`, `debug`, `pause` or `break` in committed code.
+
+## Verify that browser tests actually ran
+
+A clean installation is not evidence that tests ran. On an already installed test
+addon, `-i` can produce `0 failed, 0 error(s) of 0 tests`; use a fresh disposable
+database or explicitly `-u` the test addon with `--test-enable --test-tags`.
+Require a nonzero final test count, the intended test-method start markers, and
+actual `Open ... in browser` or tour execution markers. Core formats the counts
+in `odoo/tests/result.py` and selects module tests during loading.
+
+Addons that only inherit other addons' forms can have no menus or public routes
+of their own. Generated clickbot coverage may then open no relevant page. Create
+explicit temporary window actions for the inherited provider/model/wizard views
+and open them in HttpCase. This complements, rather than replaces, flow tours.
+
+`HttpCase.browser_js` readiness code must evaluate to a boolean. Use
+`Boolean(document.querySelector(selector))`: a DOM node is a CDP remote object,
+not a serialized boolean, and can time out while the form is visibly loaded.

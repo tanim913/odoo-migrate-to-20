@@ -182,3 +182,22 @@ screen components with `patch()`. Read the equivalent core file in
 - `owl="1"`
 - `\.add\(["']kanban\.`
 - `refName:`
+
+## Nonstored form inputs used by an object button
+
+Nonstored fields can be lost during the form save/reload before an object-button
+RPC. An XML button context evaluated after that save cannot recover them. Also,
+the focused input may still have a pending change when the controller hook starts.
+Use a scoped form-view controller selected by `js_class`: first await the record's
+public `isDirty()` method (it commits pending local changes without saving), then
+read the temporary inputs before delegating to the parent button hook. Keep the
+payload only in that button's `buttonContext`, never the record/model context.
+Clear it after the action and on aborted/failed saves, and clear the input cache.
+
+Check the pinned core: `record.js:isDirty` calls `_askChanges`;
+`input_field_hook.js` commits on `NEED_LOCAL_CHANGES`; the form controller saves
+in `beforeExecuteActionButton`; `view_button_hook.js` evaluates `buttonContext`
+after that hook. Prove the real UI sequence with a browser tour that types the
+last input and immediately clicks the object button, then assert its backend
+result. A controller mock or a shell call with hand-built context cannot prove
+input commit, save/reload, and RPC context propagation.

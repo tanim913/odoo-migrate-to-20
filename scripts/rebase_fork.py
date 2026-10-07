@@ -121,7 +121,7 @@ def main():
     up_license = ast.literal_eval((up / "__manifest__.py").read_text()).get("license")
     if old_manifest.get("license") and old_manifest.get("license") != up_license:
         print(f"LICENSE: the fork declared {old_manifest.get('license')!r} but the upstream code is {up_license!r}; "
-              f"kept upstream's. Report this to the user (e.g. OEEL-1 enterprise code cannot be relicensed as LGPL).")
+              f"kept upstream's. Report this to the user (proprietary enterprise code cannot be relicensed as LGPL).")
     print(f"rebased {new} on {up}")
     print(f"renamed: {counts}; protected model names: {', '.join(protected) or '-'}")
     print(f"manifest keys kept from the fork: {', '.join(sorted(k for k in keep if k in old_manifest))}")

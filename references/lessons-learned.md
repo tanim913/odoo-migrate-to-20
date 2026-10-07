@@ -68,7 +68,7 @@ detected. If `scan.py` could have caught it, add a rule there too.
 - **Rename module references, never model names.** xmlids, template names, groups, asset paths,
   `@module/` imports and `odoo.addons.module` all get the new name. `social.media`-style model
   names keep the old prefix, so the schema is unchanged.
-- **Licences travel with code.** The fork claimed LGPL-3 on OEEL-1 enterprise code; the rebased
+- **Licences travel with code.** The fork claimed LGPL-3 on proprietary enterprise code; the rebased
   module keeps the upstream licence and the report flags it.
 - **Control runs separate migration bugs from upstream behaviour.** The clickbot timed out opening a
   kanban card that opens a list, not a form. The same smoke test on upstream `social` 20 failed
@@ -167,3 +167,18 @@ detected. If `scan.py` could have caught it, add a rule there too.
   module's own helpers (now methods of new models, methods the module calls itself, including from
   cron/server-action code and `getattr` strings, are skipped). Both checked against real cases
   (an API key `remove()`, removed hooks such as `_message_format`, `_process_notification_data`).
+
+## 2026-10-07: inherited payment forms and ephemeral inputs
+
+- **A clean install can execute zero tests.** Reinstalling an already installed
+  test addon with `-i` produced a zero-test clean summary. Explicit `-u` scheduled
+  its tests. Require counts, test starts, and browser execution markers; addons
+  with only inherited views also need explicit form actions when clickbot has no
+  own menu to visit. A DOM-node readiness expression timed out on a visibly
+  rendered form; return a boolean. See `tests-and-tours.md`.
+- **Read temporary inputs after pending changes, before save/reload.** A button
+  context bridge read the focused input too early: backend checks passed while
+  real browser payments lacked their card payload. Awaiting `record.isDirty()`
+  before collecting nonstored values fixed the input-commit boundary. Keep those
+  values in the individual button context and clear them after completion or a
+  failed save. See `backend-js-owl3.md`; test the actual browser button/RPC path.
