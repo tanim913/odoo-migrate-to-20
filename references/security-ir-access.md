@@ -85,3 +85,22 @@ Odoo 20 (pattern from `odoo/addons/base/security/base_groups.xml`):
   Grep for it in core and enterprise.
 - `sudo()` in public controllers: keep it minimal, and never trust request params in domains.
   Run the `odoo-security` skill checklist on controllers.
+
+
+### Preserve the combined rule semantics
+
+Adding an own-record group grant beside an unrestricted internal-user grant
+does not restrict that user: applicable grants are OR-ed. Compare the entire
+source ACL/rule combination, including implied groups and administrator
+exemptions, with the resulting grants/restrictions. Where a source restriction
+was conditional on a role, a group-less restriction may express that condition;
+it only narrows existing grants and never creates access. Test an actual own-only
+user, another record, an administrator and public CRUD denial after loading data.
+Core proof: ir_access._compute_kind and BaseModel._access_domain.
+
+
+### `operation` values
+
+`operation` is a selection whose keys are the letters in `crud` order (`ir_access.py`
+`CRUD_SELECTION`): `cr` is valid, `rc` is not. An invalid value is inserted as NULL and the install
+stops with `null value in column "operation"`. `scan.py` rule `ir-access-operation`.

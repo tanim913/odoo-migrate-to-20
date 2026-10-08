@@ -62,6 +62,12 @@ RULES = [
      "pgcode tuple removed in 20 -> isinstance(err, odoo.sql_db.PG_CONCURRENCY_EXCEPTIONS_TO_RETRY)", "python-orm.md", ""),
     ("http-request-class", "python", "BLOCKER", [PY], "any", r"\bhttp\.Request\b",
      "odoo.http no longer exports Request -> odoo.http.requestlib.Request", "controllers-http.md", ""),
+    ("payment-notification-api", "python", "BLOCKER", [PY], "any", r"\b_handle_notification_data\(|\b_process_notification_data\(|\b_get_tx_from_notification_data\(",
+     "removed in 20: provider data go through tx._record(payment_data) (queued) -> _apply_updates / _extract_reference", "python-orm.md", ""),
+    ("payment-finalize-cron", "python", "BLOCKER", [PY], "any", r"\b_(cron_)?finalize_post_processing\(",
+     "removed in 20 -> _cron_post_process / _post_process / tx._try_post_process()", "python-orm.md", ""),
+    ("payment-compatible-api", "python", "BLOCKER", [PY], "any", r"\b_get_compatible_(payment_methods|providers)\(",
+     "removed in 20 -> payment.provider._find_available_payment_methods / _find_available_providers / _find_available_tokens", "python-orm.md", ""),
     ("message-post-with", "python", "RUNTIME", [PY], "any", r"message_post_with_(view|template)\(", "-> message_post_with_source", "python-orm.md", ""),
     ("track-hooks", "python", "SILENT", [PY], "any", r"def _track_(subtype|template)\(", "renamed: _track_log_get_default_subtype / _track_template_parameters", "python-orm.md", ""),
     ("test-classes", "python", "BLOCKER", [PY], "any", r"\b(SavepointCase|SingleTransactionCase)\b", "removed test base class -> TransactionCase", "python-orm.md", ""),
@@ -320,6 +326,30 @@ def _core_defs():
     return _CORE_DEFS
 
 
+_SIBLING_DEFS = {}
+
+
+def _sibling_defs(module: Path):
+    """Method names defined by the other custom modules next to this one (possible super() targets)."""
+    key = str(module.parent)
+    if key not in _SIBLING_DEFS:
+        names = set()
+        for p in module.parent.glob("*/**/*.py"):
+            if module in p.parents or "__pycache__" in p.parts:
+                continue
+            names.update(re.findall(r"^\s+def (\w+)\(", p.read_text(errors="replace"), re.M))
+        _SIBLING_DEFS[key] = names
+    return _SIBLING_DEFS[key]
+
+
+def _calls_super_same(fn) -> bool:
+    for node in ast.walk(fn):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == fn.name
+                and isinstance(node.func.value, ast.Call) and getattr(node.func.value.func, "id", "") == "super"):
+            return True
+    return False
+
+
 def override_signature_checks(module: Path):
     """Methods overriding an Odoo 20 core method with a different positional signature."""
     import subprocess
@@ -363,7 +393,17 @@ def override_signature_checks(module: Path):
                 ours = [a.arg for a in fn.args.posonlyargs + fn.args.args]
                 hits = _core_defs().get(fn.name, [])
                 if not hits:
-                    if new_model or fn.name in called:
+                    if new_model:
+                        continue
+                    if _calls_super_same(fn) and fn.name not in _sibling_defs(module):
+                        # an override that calls super() of a method nobody defines any more: dead hook,
+                        # whatever its name prefix (e.g. _get_compatible_payment_methods)
+                        findings.append(dict(rule="override-gone", area="python", severity="RUNTIME",
+                                             file=str(path.relative_to(module)), line=fn.lineno, text=f"def {fn.name}",
+                                             message=f"'{fn.name}' calls super() but no Odoo 20 module (nor a sibling custom module) defines it: the hook was renamed or removed, so this override is never called and its super() would fail",
+                                             ref="python-orm.md", auto=""))
+                        continue
+                    if fn.name in called:
                         continue
                     if fn.name.startswith("_") and not any(fn.name.startswith(p) for p in ("_compute_", "_inverse_", "_search_", "_onchange_", "_check_", "_get_", "_prepare_", "_default_")):
                         findings.append(dict(rule="override-gone", area="python", severity="WARN",
@@ -456,6 +496,56 @@ def xmlid_checks(module: Path):
                                              file=str(path.relative_to(module)), line=i, text=line.strip()[:160],
                                              message=f"'{ref}' does not exist in Odoo 20 (renamed/removed): find its replacement in the 20 module",
                                              ref="views-xml-data.md", auto=""))
+    return findings
+
+
+CRUD_OPERATIONS = {"c", "r", "u", "d", "cr", "cu", "cd", "ru", "rd", "ud", "cru", "crd", "cud", "rud", "crud"}
+
+
+def misc_checks(module: Path):
+    """Checks that need file context: CSS Color 4 syntax in SCSS, ir.access operation values,
+    payment.provider state in code that deals with payment providers."""
+    import csv
+    findings = []
+
+    def add(rule, area, sev, path, line, text, msg, ref):
+        findings.append(dict(rule=rule, area=area, severity=sev, file=str(path.relative_to(module)), line=line,
+                             text=text.strip()[:160], message=msg, ref=ref, auto=""))
+
+    css4 = re.compile(r"\b(rgba?|hsla?)\(\s*[0-9.]+(%|deg)?\s+[0-9.]+%?\s+[0-9.]+%?\s*(/|\))")
+    state_rx = re.compile(r"""\(\s*['"]state['"]\s*,\s*['"](!=|=|in|not in)['"]\s*,\s*[\[(]?\s*['"](disabled|enabled|test)['"]"""
+                          r"""|\.state\s*(==|!=)\s*['"](disabled|enabled|test)['"]""")
+    for path in module.rglob("*"):
+        if not path.is_file() or "__pycache__" in path.parts or "/lib/" in str(path):
+            continue
+        if path.suffix == ".scss":  # .css is served as is; only SCSS goes through libsass
+            for i, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+                if css4.search(line) and not line.lstrip().startswith("//"):
+                    add("scss-css4-color", "scss", "BLOCKER", path, i, line,
+                        "libsass (Odoo's SCSS compiler) rejects the CSS Color 4 space syntax, e.g. rgb(0 0 0 / 15%): "
+                        "the whole bundle fails to compile -> rgba(0, 0, 0, 0.15)", "scss-bootstrap-icons.md")
+        elif path.name == "ir.access.csv":
+            try:
+                rows = list(csv.DictReader(path.read_text(errors="replace").splitlines()))
+            except csv.Error:
+                continue
+            for i, row in enumerate(rows, 2):
+                op = (row.get("operation") or "").strip()
+                if op not in CRUD_OPERATIONS:
+                    add("ir-access-operation", "security", "BLOCKER", path, i, ",".join(v or "" for v in row.values()),
+                        f"operation '{op}' is not a valid value: letters in 'crud' order (e.g. 'cr', not 'rc'); "
+                        "an invalid value is inserted as NULL and the install fails", "security-ir-access.md")
+        elif path.suffix == ".py":
+            text = path.read_text(errors="replace")
+            if not re.search(r"payment\.provider|payment_provider|from odoo\.addons\.payment", text):
+                continue
+            if re.search(r"^\s+state\s*=\s*fields\.", text, re.M):
+                continue  # the file's own models have a state field: these lines are about them
+            for i, line in enumerate(text.splitlines(), 1):
+                if state_rx.search(line) and not line.lstrip().startswith("#"):
+                    add("payment-provider-state", "python", "BLOCKER", path, i, line,
+                        "payment.provider.state removed in 20: 'disabled' -> active=False, 'enabled' -> is_live=True, "
+                        "'test' -> is_live=False (check the model this line is about)", "python-orm.md")
     return findings
 
 
@@ -896,7 +986,8 @@ print(json.dumps(res))
 def scan(module: Path, area=None):
     findings = (manifest_checks(module) + python_import_checks(module) + py_odoo_import_checks(module)
                 + js_import_checks(module) + tour_checks(module)
-                + override_signature_checks(module) + xmlid_checks(module) + identity_checked_calls(module))
+                + override_signature_checks(module) + xmlid_checks(module) + identity_checked_calls(module)
+                + misc_checks(module))
     compiled = [(r, re.compile(r[5], re.M)) for r in RULES]
     for path in iter_files(module):
         kind = file_kind(path)
@@ -906,6 +997,8 @@ def scan(module: Path, area=None):
             content = path.read_text(errors="replace")
         except OSError:
             continue
+        if path.suffix == ".xml":  # commented-out markup is not code: blank it, keeping offsets/line numbers
+            content = re.sub(r"<!--.*?-->", lambda m: re.sub(r"[^\n]", " ", m.group(0)), content, flags=re.S)
         line_starts = [0] + [m.end() for m in re.finditer(r"\n", content)]
         lines = content.splitlines()
         for rule, rx in compiled:

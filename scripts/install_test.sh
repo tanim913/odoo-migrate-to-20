@@ -70,7 +70,7 @@ echo "DB=$DB  LOG=$LOG"
 RC=$?
 
 # What counts as a problem. Ignore known-noise warnings from core/env.
-PROBLEMS=$(grep -nE " (ERROR|CRITICAL) |Traceback|Unknown directives|incompatible version|not installable|Some modules are not loaded|invalid addons directory '$ADDONS|FAIL:|ERROR:|[1-9][0-9]* failed, |, [1-9][0-9]* error\(s\)|skipped.*(websocket|Chrome|browser)|websocket-client module is not installed|Chrome.*not found|Failed to load|ParseError|ValidationError|Element .* cannot be located" "$LOG" \
+PROBLEMS=$(grep -nE " (ERROR|CRITICAL) |Traceback|Unknown directives|incompatible version|not installable|Some modules are not loaded|invalid addons directory '$ADDONS|FAIL:|ERROR:|[1-9][0-9]* failed, |, [1-9][0-9]* error\(s\)|skipped.*(websocket|Chrome|browser)|websocket-client module is not installed|Chrome.*not found|Failed to load|ParseError|ValidationError|Element .* cannot be located|error occurred while compiling the bundle" "$LOG" \
     | grep -vE "odoo20_custom_addons.*invalid addons directory" \
     | python3 -c "
 import re, sys
@@ -82,7 +82,7 @@ for line in sys.stdin:  # sibling modules in the same addons dir that are not mi
     sys.stdout.write(line)
 " "$MODULES" || true)
 # drop the database-name column first: the throwaway DB is named after the module, which would match every line
-WARNINGS=$(grep -nE " WARNING " "$LOG" | awk '{ $5 = ""; print }' | grep -E "$(echo "$MODULES" | tr ',' '|')|deprecated|Deprecat" \
+WARNINGS=$(grep -nE " WARNING " "$LOG" | awk '{ $5 = ""; print }' | grep -E "\\b($(echo "$MODULES" | tr ',' '|'))\\b|deprecated|Deprecat" | grep -vE "\\b[a-z0-9]+_($(echo "$MODULES" | tr ',' '|'))\\b" \
     | grep -vE "Postgres version|http_interface" || true)
 STATE=$(psql "${MIG20_PG_ARGS[@]}" -d "$DB" -Atc "select name||'='||state from ir_module_module where name in ('$(echo "$MODULES" | sed "s/,/','/g")')" 2>/dev/null)
 

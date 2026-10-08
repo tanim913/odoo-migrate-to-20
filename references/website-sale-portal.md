@@ -84,3 +84,16 @@ For a sample, see `$ODOO20_SERVER/addons/sale/data/portal_entry_data.xml`.
   - Model hook: `_get_form_writable_fields(self, property_origins=None)` (18+).
   - Editor-side form actions: `registry.category("website.form_editor_actions")` in a `*.edit.js`
     file.
+
+
+### XPath class helper and model-changing portal IDs
+
+Odoo's ir_ui_view._hasclass reads only @class, not t-att-class or t-attf-class.
+For a dynamic checkout wrapper, anchor through a stable named descendant (for
+example //table[@name='cart_total_table']/parent::div), after checking core. A
+static XPath evaluator must use the same helper semantics as the server.
+
+If replacing an inherited home view with portal.entry under the same XML ID,
+a clean install cannot prove the old binding upgrades. Retire/remap the legacy
+ir.ui.view XML ID in a pre-migration before creating the new model's record.
+Preserve useful legacy records inactive and test repeatability.

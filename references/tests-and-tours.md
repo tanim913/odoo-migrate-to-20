@@ -217,3 +217,14 @@ and open them in HttpCase. This complements, rather than replaces, flow tours.
 `HttpCase.browser_js` readiness code must evaluate to a boolean. Use
 `Boolean(document.querySelector(selector))`: a DOM node is a CDP remote object,
 not a serialized boolean, and can time out while the form is visibly loaded.
+
+
+### Patching a constraint in a test does not work once constraints are cached
+
+The registry caches the list of constraint methods per model (`_constraint_methods`), so
+`patch.object(Model, "_check_x", ...)` is ignored after the first validation in the process, and
+constraints run at flush time, often after the `with patch(...)` block has ended. A flow test that
+configured a payment provider this way only passed when an earlier run had already stored the same
+values. Use values the constraint skips by design (e.g. a documented placeholder login), or patch
+the external call the constraint makes, and `env.flush_all()` inside the patched block. Run each
+check script on a fresh database and in more than one order before trusting it.

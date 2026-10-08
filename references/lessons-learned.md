@@ -182,3 +182,52 @@ detected. If `scan.py` could have caught it, add a rule there too.
   before collecting nonstored values fixed the input-commit boundary. Keep those
   values in the individual button context and clear them after completion or a
   failed save. See `backend-js-owl3.md`; test the actual browser button/RPC path.
+
+
+## 2026-10-07: inherited templates, portal XML IDs and access domains
+
+- **XPath hasclass() reads the literal class attribute.** A checkout wrapper
+  used only t-attf-class, so a helper that also checked that attribute falsely
+  passed a selector that failed Odoo installation. Anchor through a stable named
+  child or another literal attribute, and use the actual helper semantics in
+  static checks. See website-sale-portal.md.
+- **Changing an XML ID's model needs an upgrade step.** A portal home view became
+  a portal.entry with the same ID. Fresh installs worked, but an old ir.ui.view
+  binding must be retired/remapped before data loading. Keep an inactive legacy
+  record for audit where useful; test the migration twice on persisted fixtures
+  and include the real module upgrade in production-copy validation.
+- **A group domain is a grant in ir.access, not an independent restriction.**
+  Keeping a broad internal-user grant beside an own-record group grant did not
+  preserve the old group's record restriction: the broader grant won. Review
+  the OR of all applicable grants and the AND of global restrictions. Translate
+  the complete old rule combination, including administrator exemptions, and
+  verify own, unrelated, administrator and public access with actual users.
+- **Method-name matches do not establish inheritance.** Signature checks matched
+  helpers on a new custom model to similarly named methods on an unrelated
+  enterprise model. Verify the defining model and inheritance chain before
+  changing signatures; retain explicit dispositions for scanner false positives.
+  Field-name regexes also need model context: a custom tax_id is not necessarily
+  a renamed sale/purchase line field.
+
+## 2026-10-08: review of a payment and an appointment batch done by another agent
+
+- **Review the other agent's results, not only its summary.** Every check was re-run on fresh
+  databases. Two defects had passed its evidence: an SCSS file with `rgb(0 0 0 / 15%)` broke the
+  compilation of every bundle that included it (30 warnings in its own browser log, all tests
+  green), and a flow script only passed after the browser suite had run first, because its
+  constraint patch never applied. New `scan.py` rule `scss-css4-color`, `install_test.sh` now
+  fails on bundle compile errors, and `tests-and-tours.md` explains the constraint patch.
+- **Migration is not the time to switch features on.** A payment option that was hidden and whose
+  posting call was commented out in the source had been made visible ("restoring" a dormant
+  path), which added backend raw-card entry. Keep source visibility and behaviour; list such
+  options for the user to decide.
+- **Payment customisations need the 20 engine map.** Provider `state`, synchronous notification
+  handling, capture/void on the source transaction and free writes on transactions are all gone
+  (`python-orm.md`, "Payment providers and transactions"). New rules `payment-provider-state`,
+  `payment-notification-api`, `payment-finalize-cron`, `payment-compatible-api`; `override-gone`
+  now also reports super()-calling overrides of hooks nobody defines (it skipped `_get_*`
+  names). An invalid `ir.access` operation (`rc`) stops the install: rule `ir-access-operation`.
+- **Scanner false positives fixed:** XML rules matched code inside `<!-- -->` comments (63 `attrs`
+  hits in one module were all commented out); `install_test.sh` warnings matched module names as
+  substrings of longer sibling module names. All new rules checked on 60 core payment, sale, PoS
+  and account modules with zero hits.

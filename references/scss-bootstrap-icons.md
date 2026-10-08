@@ -74,3 +74,13 @@ Common mapping, each checked against icons_wishlist.txt at the time of writing (
 - Use Bootstrap 5 variables and CSS custom properties (`var(--bs-primary)`). BS4 mixins such as
   `media-breakpoint-*` still exist.
 - Dark mode: `web.assets_web_dark` bundle.
+
+
+## CSS Color 4 syntax breaks SCSS bundles
+
+Odoo compiles `.scss` with libsass, which does not understand the space-separated colour syntax:
+`rgb(0 0 0 / 15%)` fails with `Function rgb is missing argument $green.` and **the whole bundle**
+fails to compile, so every page using it loses its styles. Tests can still pass; the only trace is
+a WARNING "This error occurred while compiling the bundle" (`install_test.sh` now counts it as a
+problem). Write `rgba(0, 0, 0, 0.15)`. Plain `.css` files are not compiled and may keep the
+modern syntax. `scan.py` rule `scss-css4-color`.

@@ -64,3 +64,35 @@ Model and field renames are in field-model-renames.md.
   the recordset.
 - Keep the source module's structure. Migration is not refactoring. Fix only what 20 requires, and
   fix it the way current core code does it.
+
+
+### Check the model before changing a detected signature
+
+The scanner's method-name index can match a helper on a new custom model to an
+unrelated core/enterprise model. Resolve _name/_inherit and the defining model
+first. A matching name alone is not an override; document a false positive rather
+than changing a custom public contract to match an unrelated method.
+
+
+### Payment providers and transactions (Odoo 20 payment engine)
+
+Check each point in `addons/payment/models/payment_transaction.py`, `payment_data.py` and the
+provider's own module (e.g. `payment_authorize`) before porting a payment customisation.
+
+| Odoo 17 | Odoo 20 |
+|---|---|
+| `payment.provider.state` (`disabled` / `test` / `enabled`) | removed: `active` (False = disabled) and `is_live` (False = test). `AuthorizeAPI` and similar helpers keep `self.is_live`, not `self.state` |
+| `tx._handle_notification_data(code, data)`, processed at once | `tx._record(payment_data)`: stores a `payment.data` row and triggers `payment.processing_cron`; processing (`_apply_updates`, amount check, `_tokenize`) and post-processing run **later, in another transaction**. Code that read `tx.state` right after the call now reads the old state |
+| `_process_notification_data`, `_get_tx_from_notification_data` | `_apply_updates(payment_data)`, `_extract_reference(provider_code, payment_data)`, `_extract_amount_data(payment_data)` |
+| `_cron_finalize_post_processing`, `_finalize_post_processing` | `_cron_post_process`, `_post_process`; `tx._try_post_process()` post-processes immediately (savepoint, falls back to the cron) |
+| capture/void/refund on the transaction itself (`_send_capture_request` used `self.provider_reference`) | `tx._capture(amount)` / `_void()` / `_refund()` create a **child transaction** and call `child._send_*_request()`, which must use `self.source_transaction_id.provider_reference`. A void child of a payment ends `cancel`, not `done` |
+| writing fields on `payment.transaction` freely | `write()` raises unless the context has `payment_safe_write=True` (what the processing uses) |
+| `_set_done(state_message)` etc. positional | keyword-only: `_set_done(state_message=...)`; `_set_error(state_message)` unchanged |
+| provider-specific tokenize (e.g. `_authorize_tokenize`) | `_tokenize(payment_data)` + `_extract_token_values(payment_data)` |
+| `payment.method._get_compatible_payment_methods`, `payment.provider._get_compatible_providers` | `payment.provider._find_available_payment_methods`, `_find_available_providers`, `_find_available_tokens` |
+
+Backend flows that need the result immediately (a wizard that charges and then shows the outcome)
+can reproduce what `payment.data._cron_process` does for one transaction: `_record`, lock the
+transaction (and its source) and the pending `payment.data`, `_process(payload)` with
+`payment_safe_write=True`, delete the row, then `_try_post_process()`, all in a savepoint so the
+data stay queued for the cron if anything fails. Portal and webhook flows keep `_record` alone.
