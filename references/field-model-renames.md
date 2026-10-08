@@ -31,7 +31,16 @@ per area. Always confirm the field in 20:
 | 19 | `purchase.order.line` | `taxes_id`, `product_uom` | `tax_ids`, `product_uom_id` |
 | 19 | `hr.contract` model | – | `hr.version` |
 | **20** | `stock.move`, `stock.move.line` | `product_uom`, `product_uom_id` | **`uom_id`** |
-| **20** | `res.partner` | `company_type` | removed (`is_company`) |
+| **20** | `res.partner` | `company_type` | removed (`is_company`); `default_company_type` in contexts too. A `<field name="company_type"/>` in a view stops the install |
+| **20** | `res.partner` | `team_id`, `company_name`, `sla_ids` (helpdesk), `property_payment_method_id` (account_check_printing), `mobile_blacklisted` | removed; `commercial_company_name` is a stored related field. A module that still needs one defines the field itself (and keeps the column in the data upgrade) |
+| **20** | `res.partner` method | `action_view_sale_order` | removed: the Sales smart button is `type="action" name="sale.act_res_partner_2_sale_order"` |
+| **20** | `sale.subscription.pricing` model | `product_template_id`, `product_variant_ids`, `price`, `plan_id`, `pricelist_id` | merged into `product.pricelist.item`: rules with a `plan_id` (`product.template.subscription_rule_ids`), `product_tmpl_id`, `product_id`, `fixed_price`. `pricelist_id` gets a default pricelist on create: pass `pricelist_id: False` for a rule that applies to every pricelist |
+| **20** | `account.move.send` | several invoices in one wizard (`mode != 'invoice_single'`) | `account.move.send.batch.wizard` (`move_ids`; the helpers `_get_default_mail_template_id`, `_get_default_mail_partner_ids` are on the shared abstract `account.move.send`) |
+| **20** | `choose.delivery.carrier` method | `_get_shipment_rate` | `_set_delivery_vals(delivery_vals)` sets the wizard prices |
+| **20** | `sale.order` | `require_payment` | removed: an order needs an online payment when `prepayment_percent > 0` |
+| **20** | `sale.subscription.plan` | `billing_period_unit` | a unit added by a module (e.g. `day`) needs its own `_compute_billing_period_display` / `_compute_delivery_period_display`: the 20 computes raise on unknown units |
+| **20** | decimal precision | `'Product Unit of Measure'` | `'Product Unit'` (`digits='Product Unit'`). scan `precision-uom` |
+| **20** | `mail.message` tracking | `tracking_value_ids` / `mail.tracking.value` | gone from the message; tracking values are written at commit time (`mail.track.mixin`). In a rollback-only test check `record._track_get_fields()` instead of the message |
 | **20** | `uom.uom` | `rounding` | removed |
 | **20** | `account.move` | `checked` | `review_state` |
 | **20** | `ir.actions.report` | `report_file` | removed; delete the field line |

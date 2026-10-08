@@ -44,6 +44,13 @@ and `odoo/models/__init__.py` re-exports it.
 | 20 | `env.clear()` | `env.transaction.clear()` (or `env.transaction.reset()`) | W |
 | 20 | `from odoo.service.model import PG_CONCURRENCY_ERRORS_TO_RETRY`; `if err.pgcode not in ...` | `from odoo.sql_db import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY`; `if not isinstance(err, PG_CONCURRENCY_EXCEPTIONS_TO_RETRY)` | B |
 | 20 | `@classmethod def _login(cls, db, login, password, user_agent_env)` returning the uid | `def _login(self, credential, user_agent_env)` returning auth info (`{'uid': ...}`); call `super()._login(credential, user_agent_env)`. A check that must log even when the login is refused keeps its own cursor: `with self.env.registry.cursor() as cr:` (was `cls.pool.cursor()`) | R |
+| 20 | an override of `_login` that replaces the core method without `super()` | call `super()._login(credential, user_agent_env)` and adjust around it (normalise `credential['login']` before, restore a value after): `auth_passkey` (auto-installed) and `auth_ldap` also override `_login`, and are skipped otherwise. scan `login-no-super` | R |
+| 20 | `self.env['ir.config_parameter'].get_param(key, default)` / `set_param(key, value)` | `get_str(key, default='')`, `get_bool`, `get_int`, `get_float`; `set_str`, `set_bool`, `set_int`, `set_float` (`odoo/addons/base/models/ir_config_parameter.py`). No upgrade_code script. `get_param(k, 'True') == 'True'` → `get_bool(k, True)`; `int(get_param(k, '7'))` → `get_int(k, 7)`. Also in QWeb mail templates and reports (`env['ir.config_parameter'].sudo().get_str('web.base.url')`); 20 renders mail templates at install, so a template using it stops the install with demo data. scan `config-param` | R |
+| 20 | `group_expand` method `(self, values, domain, order)` | `(self, values, domain)`: TypeError when grouping. scan `group-expand-signature` | R |
+| 20 | compute `for rec in self._origin: rec.x = ...` | `for rec in self: rec.x = ... rec._origin...`: the 20 form onchange computes non-stored fields on new records too ("Compute method failed to assign"). scan `compute-origin-only` | R |
+| 20 | `fields.Char(unaccent=False)` | parameter removed (warning); delete it | W |
+| 20 | field parameters such as `readonly=1` | booleans only (`readonly=True`): 20 warns "should be a boolean" | W |
+| 20 | `mail.mail.send(self, auto_commit=False, raise_exception=False)` override | add `post_send_callback=None` and pass it to `super()`: the mail queue cron (`process_email_queue`) passes it, so every outgoing mail fails otherwise | R |
 | 17 | `message_post_with_view` / `message_post_with_template` | `message_post_with_source(source_ref, render_values=..., subtype_xmlid=...)` | R |
 | 20 | mail `_track_subtype(init_values)` | `_track_log_get_default_subtype(...)`; confirm the signature in `addons/mail/models/mail_thread.py` | S |
 | 20 | mail `_track_template(changes)` | `_track_template_parameters(tracked_fields)` | S |
@@ -73,6 +80,27 @@ unrelated core/enterprise model. Resolve _name/_inherit and the defining model
 first. A matching name alone is not an override; document a false positive rather
 than changing a custom public contract to match an unrelated method.
 
+
+### Overrides that silently stop working
+
+- **Renames can create a duplicate method.** Renaming `_name_search` to `name_search` (or
+  `name_get` to `_compute_display_name`) in a class that already overrides the target name leaves
+  two definitions in one class. Python keeps the last one; the other override is lost without any
+  error. Merge them, in the order the old code ran (e.g. the old `name_search` added domain terms,
+  then the old `_name_search` ran on that domain). scan `duplicate-method`.
+- **Copied core field definitions.** Old code often redefines a core field whole (all its
+  arguments) only to add `tracking=True` or a label. On 20 that copy replaces the 20 attributes,
+  and can point at a compute that no longer exists (install fails at the first recompute). Redefine
+  only what changes: `pricelist_id = fields.Many2one(tracking=1)`; the ORM merges it with the core
+  definition. If the core field itself is gone, move the change to its 20 replacement.
+- **Hooks removed from core.** An override that calls `super()` of a method no 20 class defines is
+  never called, and its `super()` would raise. The static rule `override-gone` matches method
+  names only, so a same-named method of another model hides it (example: `res.partner.action_view_sale_order`
+  was removed and the partner Sales button now opens an action directly; `event_sale` still has a
+  method of that name). After the install, run `scripts/registry_check.py`, which uses the real
+  MRO: it reports `dead-super` methods and fields whose `compute`/`inverse`/`search` method does
+  not exist. Read each hit: a `super()` call inside a branch that only runs with another module
+  installed is fine.
 
 ### Payment providers and transactions (Odoo 20 payment engine)
 

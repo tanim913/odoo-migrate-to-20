@@ -51,6 +51,13 @@ value is HTML that is not already an Html field or Markup: if so, wrap it in Pyt
 
 ## Mail templates (`mail.template` records)
 
+- **20 renders every mail template at install** (`mail.template._check_can_be_rendered`, with a
+  sample record when demo data exist). A template that calls a removed API
+  (`ir.config_parameter.get_param`) or `env.ref('<module>.<xmlid>')` of a module outside the
+  `depends` closure stops the install. Use `env.ref('<xmlid>', False)` with a fallback when the
+  target module is optional; a field of an optional module can be tested with
+  `'field' in record._fields and record.field` (core reports do the same).
+
 | Source | Odoo 20 |
 |---|---|
 | 14 Jinja/Mako `${object.name}` in `body_html` | QWeb: `<t t-out="object.name"/>` in `body_html` (`render_engine` qweb) |

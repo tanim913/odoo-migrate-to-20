@@ -71,8 +71,19 @@ RULES = [
     ("message-post-with", "python", "RUNTIME", [PY], "any", r"message_post_with_(view|template)\(", "-> message_post_with_source", "python-orm.md", ""),
     ("track-hooks", "python", "SILENT", [PY], "any", r"def _track_(subtype|template)\(", "renamed: _track_log_get_default_subtype / _track_template_parameters", "python-orm.md", ""),
     ("test-classes", "python", "BLOCKER", [PY], "any", r"\b(SavepointCase|SingleTransactionCase)\b", "removed test base class -> TransactionCase", "python-orm.md", ""),
-    ("py-libs", "python", "BLOCKER", [PY], "any", r"^\s*(import (pytz|xlwt|imp|distutils|pkg_resources)|from (pytz|xlwt|imp|distutils|pkg_resources)\b)",
+    ("py-libs", "python", "BLOCKER", [PY], "any", r"^\s*(import (xlwt|imp|distutils|pkg_resources)|from (xlwt|imp|distutils|pkg_resources)\b)",
      "library not available in 20 env / py3.12", "python-orm.md", ""),
+    ("pytz", "python", "WARN", [PY], "any", r"^\s*(import pytz|from pytz\b)",
+     "pytz is no longer an Odoo 20 requirement (core uses zoneinfo): declare it in external_dependencies or move to zoneinfo", "python-orm.md", ""),
+    ("config-param", "python", "RUNTIME", [PY, XML], "any",
+     r"""ir\.config_parameter['"]\]\s*(?:\.sudo\(\))?\s*\.(?:get|set)_param\(|\b\w*(?:ICP|IrConfig\w*|config_param\w*|params?)\.(?:get|set)_param\(""",
+     "ir.config_parameter get_param/set_param removed -> get_str/get_bool/get_int/get_float, set_str/set_bool/... (also in QWeb templates)", "python-orm.md", ""),
+    ("get-view-tree", "python", "SILENT", [PY], "server", r"""view_type\s*(==|!=)\s*['"]tree['"]|view_type\s+(not\s+)?in\s+[\[(][^\])]*['"]tree['"]|xpath\(\s*['"]/{1,2}tree\b""",
+     "list views are view_type 'list' with a <list> root in 20: this get_view branch never runs", "views-xml-data.md", ""),
+    ("precision-uom", "python", "RUNTIME", [PY], "any", r"""(digits\s*=\s*|precision_get\(\s*|get_precision\(\s*)['"]Product Unit of Measure['"]""",
+     "decimal precision 'Product Unit of Measure' renamed 'Product Unit'", "field-model-renames.md", ""),
+    ("field-unaccent", "python", "WARN", [PY], "any", r"fields\.\w+\([^)]*\bunaccent\s*=",
+     "field parameter unaccent removed in 20 (ignored with a warning)", "python-orm.md", ""),
     ("ir-property", "python", "RUNTIME", [PY], "any", r"['\"]ir\.property['\"]", "ir.property model removed", "python-orm.md", ""),
     # ---- renamed fields (py + xml + js) -------------------------------------
     ("renamed-groups-id", "renames", "BLOCKER", [PY, XML, JS], "any", r"\bgroups_id\b", "groups_id -> group_ids", "field-model-renames.md", ""),
@@ -84,7 +95,10 @@ RULES = [
     ("renamed-report-file", "renames", "BLOCKER", [XML, PY], "any", r"name=\"report_file\"|['\"]report_file['\"]", "ir.actions.report report_file removed", "field-model-renames.md", ""),
     ("renamed-line-tax", "renames", "BLOCKER", [PY, XML, JS], "any", r"\btax_id\b|\btaxes_id\b", "sale/purchase line tax_id/taxes_id -> tax_ids (check model!)", "field-model-renames.md", ""),
     ("renamed-product-uom", "renames", "BLOCKER", [PY, XML, JS], "any", r"\bproduct_uom\b(?!_)", "product_uom -> product_uom_id (sale/purchase lines) / uom_id (stock.move)", "field-model-renames.md", ""),
-    ("renamed-partner", "renames", "RUNTIME", [PY, XML, JS], "any", r"\b(company_type|address_home_id)\b|name=\"mobile\"|\.mobile\b", "res.partner/hr field removed", "field-model-renames.md", ""),
+    ("renamed-partner", "renames", "RUNTIME", [PY, XML, JS], "any", r"\bdefault_company_type\b|\b\w*(?:partner|patient|customer)\w*\.(?:company_type|mobile)\b(?![-.\w])|\baddress_home_id\b",
+     "res.partner company_type/mobile (and hr address_home_id) removed in 20: use is_company / phone", "field-model-renames.md", ""),
+    ("view-company-type", "renames", "BLOCKER", [XML], "server", r"<field name=\"company_type\"",
+     "res.partner.company_type removed in 20: the view does not load (use is_company)", "field-model-renames.md", ""),
     ("renamed-analytic", "renames", "BLOCKER", [PY, XML], "any", r"\banalytic_tag_ids\b|\banalytic_account_id\b", "analytic fields -> analytic_distribution (check model)", "field-model-renames.md", ""),
     ("renamed-mail-template", "renames", "BLOCKER", [XML, PY], "any", r"name=\"report_template\"", "report_template -> report_template_ids", "field-model-renames.md", ""),
     # ---- controllers ------------------------------------------------------
@@ -350,6 +364,20 @@ def _calls_super_same(fn) -> bool:
     return False
 
 
+_FILE_TEXT = {}
+
+
+def _file_mentions(path, model):
+    """True if a class of the core file is the model: `_name = 'model'`, or `_inherit = 'model'` (a single
+    string: a model whose _inherit is a list of mixins is another model)."""
+    if path not in _FILE_TEXT:
+        try:
+            _FILE_TEXT[path] = Path(path).read_text(errors="replace")
+        except OSError:
+            _FILE_TEXT[path] = ""
+    return re.search(rf"""_(inherit|name)\s*=\s*['"]{re.escape(model)}['"]""", _FILE_TEXT[path]) is not None
+
+
 def override_signature_checks(module: Path):
     """Methods overriding an Odoo 20 core method with a different positional signature."""
     import subprocess
@@ -411,11 +439,21 @@ def override_signature_checks(module: Path):
                                              message=f"'{fn.name}' is not defined anywhere in Odoo 20: if it overrode a core hook, that hook was renamed/removed (override never called)",
                                              ref="python-orm.md", auto=""))
                     continue
+                # keep the definitions that can be in this model's MRO: the ORM base classes, or files
+                # that name one of the inherited models (a same-named method of another model is not a
+                # super() target, e.g. sign.request._schedule_activity vs a sale.order helper)
+                related = [h for h in hits if "/odoo/orm/" in h or "/odoo/models" in h
+                           or any(_file_mentions(h.split(":", 1)[0], model) for model in inherits)]
+                if not related:
+                    continue
+                hits = related
                 sigs = set()
+                multiline = False
                 for h in hits[:40]:
                     m = re.search(rf"def {re.escape(fn.name)}\((.*)", h)
                     if not m or ")" not in m.group(1):
-                        continue  # multi-line definition: signature not comparable from one line, skip it
+                        multiline = True  # multi-line definition: signature not comparable from one line
+                        continue
                     params = []
                     for p in m.group(1).split(")")[0].split(","):
                         p = p.strip().split(":")[0].split("=")[0].strip()
@@ -425,7 +463,7 @@ def override_signature_checks(module: Path):
                             params.append(p)
                     sigs.add(tuple(params))
                 ours_t = tuple(ours)
-                if sigs and len(ours_t) not in {len(s) for s in sigs}:
+                if sigs and not multiline and len(ours_t) not in {len(s) for s in sigs}:
                     best = min(sigs, key=lambda s: abs(len(s) - len(ours_t)))
                     if True:
                         findings.append(dict(rule="override-signature", area="python", severity="RUNTIME",
@@ -983,11 +1021,98 @@ print(json.dumps(res))
     return findings
 
 
+def class_structure_checks(module: Path):
+    """AST/XML checks that need more than one line: duplicate methods, overrides that drop super(),
+    group_expand signatures, origin-only computes, views written under another module's XML ID."""
+    findings = []
+
+    def add(rule, severity, path, line, text, message, ref):
+        findings.append(dict(rule=rule, area="python" if path.suffix == ".py" else "views", severity=severity,
+                             file=str(path.relative_to(module)), line=line, text=text, message=message,
+                             ref=ref, auto=""))
+
+    for path in module.rglob("*.py"):
+        if "__pycache__" in path.parts or "tests" in path.parts:
+            continue
+        try:
+            tree = ast.parse(path.read_text(errors="replace"))
+        except SyntaxError:
+            continue
+        for cls in [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]:
+            assigns = {}
+            for st in cls.body:
+                if isinstance(st, ast.Assign):
+                    for t in st.targets:
+                        if isinstance(t, ast.Name):
+                            try:
+                                assigns[t.id] = ast.literal_eval(st.value)
+                            except Exception:  # noqa: BLE001
+                                assigns[t.id] = None
+            inherit = assigns.get("_inherit")
+            inherits = [inherit] if isinstance(inherit, str) else list(inherit or [])
+            fns = [b for b in cls.body if isinstance(b, (ast.FunctionDef, ast.AsyncFunctionDef))]
+            # 1. same method defined twice in one class: Python keeps the last one only
+            seen = {}
+            for fn in fns:
+                decos = [ast.unparse(d) for d in fn.decorator_list]
+                if any(d.endswith((".setter", ".getter", ".deleter")) or "overload" in d for d in decos):
+                    continue
+                if fn.name in seen:
+                    add("duplicate-method", "SILENT", path, fn.lineno, f"def {fn.name}",
+                        f"'{fn.name}' is defined twice in {cls.name} (first at line {seen[fn.name]}): only this one exists. "
+                        "Typical after renaming _name_search -> name_search or name_get -> _compute_display_name; merge them",
+                        "python-orm.md")
+                else:
+                    seen[fn.name] = fn.lineno
+            # 2. res.users._login override that does not call super(): skips auth_passkey/auth_ldap
+            if "res.users" in inherits and "_name" not in assigns:
+                for fn in fns:
+                    if fn.name == "_login" and not _calls_super_same(fn):
+                        add("login-no-super", "RUNTIME", path, fn.lineno, "def _login",
+                            "_login replaces the core login without super(): auth_passkey (auto-installed) and "
+                            "other _login overrides are skipped; call super() and adjust around it", "python-orm.md")
+            # 3. group_expand methods are called with (values, domain) in 20
+            expand = set()
+            for node in ast.walk(cls):
+                if isinstance(node, ast.keyword) and node.arg == "group_expand" and isinstance(node.value, ast.Constant) \
+                        and isinstance(node.value.value, str):
+                    expand.add(node.value.value)
+            for fn in fns:
+                npos = len(fn.args.posonlyargs + fn.args.args)
+                if fn.name in expand and npos > 3 and not fn.args.vararg:
+                    add("group-expand-signature", "RUNTIME", path, fn.lineno, f"def {fn.name}",
+                        "group_expand methods are called as method(values, domain) in 20 (no order): "
+                        "TypeError when grouping", "python-orm.md")
+            # 4. computes that only assign self._origin: new records stay unassigned
+            for fn in fns:
+                if not fn.name.startswith("_compute"):
+                    continue
+                for node in ast.walk(fn):
+                    if isinstance(node, ast.For) and ast.unparse(node.iter) == "self._origin":
+                        add("compute-origin-only", "RUNTIME", path, node.lineno, "for ... in self._origin",
+                            "the compute assigns self._origin only: the 20 form onchange computes new records too and "
+                            "fails with 'Compute method failed to assign'; loop over self and read rec._origin",
+                            "python-orm.md")
+                        break
+    # 5. view records written under another module's XML ID: validated with that module's fields
+    for path in module.rglob("*.xml"):
+        if "static" in path.relative_to(module).parts:
+            continue
+        txt = path.read_text(errors="replace")
+        for m in re.finditer(r'<record\s+id="([a-z0-9_]+)\.([a-z0-9_]+)"\s+model="ir\.ui\.view"\s*>(.*?)</record>', txt, re.S):
+            if m.group(1) != module.name and 'name="arch"' in m.group(3):
+                add("foreign-view-arch", "RUNTIME", path, txt.count("\n", 0, m.start()) + 1, f'record id="{m.group(1)}.{m.group(2)}"',
+                    f"view arch written under {m.group(1)}'s XML ID: it is validated when {m.group(1)} loads, before this "
+                    f"module's fields exist, so updating {m.group(1)} fails. Make it a view of this module and switch the "
+                    "original off (active False)", "views-xml-data.md")
+    return findings
+
+
 def scan(module: Path, area=None):
     findings = (manifest_checks(module) + python_import_checks(module) + py_odoo_import_checks(module)
                 + js_import_checks(module) + tour_checks(module)
                 + override_signature_checks(module) + xmlid_checks(module) + identity_checked_calls(module)
-                + misc_checks(module))
+                + misc_checks(module) + class_structure_checks(module))
     compiled = [(r, re.compile(r[5], re.M)) for r in RULES]
     for path in iter_files(module):
         kind = file_kind(path)
@@ -999,6 +1124,8 @@ def scan(module: Path, area=None):
             continue
         if path.suffix == ".xml":  # commented-out markup is not code: blank it, keeping offsets/line numbers
             content = re.sub(r"<!--.*?-->", lambda m: re.sub(r"[^\n]", " ", m.group(0)), content, flags=re.S)
+        elif path.suffix == ".py":  # same for commented-out Python lines
+            content = re.sub(r"(?m)^[ \t]*#.*$", lambda m: " " * len(m.group(0)), content)
         line_starts = [0] + [m.end() for m in re.finditer(r"\n", content)]
         lines = content.splitlines()
         for rule, rx in compiled:

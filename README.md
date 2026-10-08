@@ -190,6 +190,9 @@ Beyond regular expressions, `scan.py`:
 - imports every third-party library with your Odoo 20 Python;
 - compares every override of a core method with its Odoo 20 signature;
 - checks every external xmlid the module references against Odoo 20;
+- finds methods defined twice in one class (a rename can make one override replace another),
+  `_login` overrides that drop `super()`, old `group_expand` signatures, computes that only assign
+  `self._origin`, and views written under another module's XML ID (which break `-u` of that module);
 - looks for secrets.
 
 ## How it proves the result
@@ -317,6 +320,8 @@ To try the module, add the project folder to your Odoo 20 `addons_path`.
 | `scripts/scan.py` | find breaking changes (`--json`, `--area`, `--fix-tesc`, `--icons`) |
 | `scripts/install_test.sh` | install (and test) on a throwaway database, summarise problems and failure screenshots, drop the database (`--tags` re-runs one test) |
 | `scripts/smoke_test.py` | generate a browser smoke-test module (clickbot, website pages, flow tours) |
+| `scripts/xpath_check.py` | list every view locator Odoo 20 cannot apply, in one run, without installing the module (`odoo-bin shell`) |
+| `scripts/registry_check.py` | after the install: overrides of hooks removed from Odoo 20 (real MRO) and fields whose compute/inverse/search method does not exist (`odoo-bin shell`) |
 
 Knowledge lives in `references/`: 15 files on the upgrade tool, manifest, Python/ORM, field
 renames, controllers, views, QWeb/reports/mail, security, backend Owl 3, website interactions,

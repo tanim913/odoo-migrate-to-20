@@ -59,6 +59,9 @@ class TestMigrationSmoke(odoo.tests.HttpCase):
     def test_01_backend(self):
         if "tour_enabled" in self.env["res.users"]._fields:
             self.env.ref("base.user_admin").tour_enabled = False
+        # menus restricted to the module's own groups are only shown to their members
+        groups, _ = self._module_records("res.groups")
+        self.env.ref("base.user_admin").group_ids |= groups
         menus, xmlids = self._module_records("ir.ui.menu")
         roots = menus.filtered(lambda m: not m.parent_id)
         for root in roots:

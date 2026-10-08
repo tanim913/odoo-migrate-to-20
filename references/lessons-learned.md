@@ -231,3 +231,43 @@ detected. If `scan.py` could have caught it, add a rule there too.
   hits in one module were all commented out); `install_test.sh` warnings matched module names as
   substrings of longer sibling module names. All new rules checked on 60 core payment, sale, PoS
   and account modules with zero hits.
+
+## 2026-10-08: a large backend "hub" module (1,700 features) that the portal and website modules build on
+
+- **A clean install is not the end.** The first clean install still hid twelve breaks that only
+  the browser smoke test (every menu, list and form) and a flow test of the rewritten logic found:
+  a missing compute on a copied core field, an unregistered `js_class`, a stat counter that failed
+  on new records, a `group_expand` signature, report columns declared but never selected, a mail
+  template using a removed API, a `mail.mail.send` override without the new argument (every
+  outgoing mail would fail). Run the smoke test with demo data and write a flow test for every
+  method you rewrote.
+- **`ir.config_parameter.get_param` is gone** and no converter handles it; it also hides in QWeb
+  mail templates and reports, and in modules migrated earlier whose tests never reached the call.
+  Grep the whole project (scan `config-param`).
+- **Renaming dead hooks can kill live code**: `_name_search` → `name_search` in a class that already
+  had `name_search` silently dropped one of them (scan `duplicate-method`).
+- **Name-based checks miss removed hooks of one model**: a removed `res.partner` method was not
+  reported because another model still has a method of that name. `scripts/registry_check.py`
+  checks the real MRO after the install.
+- **A view written under another module's XML ID breaks `-u` of that module**, even when the full
+  install works (it is validated before the writing module's fields exist). Own the view and switch
+  the original off (scan `foreign-view-arch`).
+- **Cross-module references hide in code, not only in XML IDs**: a field of a dependent module read
+  in `create()`, written in `copy()`/`write()`, shown in a report, or an `env.ref()` inside a mail
+  template. List the fields each dependent module defines and grep the base module for them.
+- **Whole-form view coverage**: export the field and button names of the combined 17 and 20 views
+  (`get_view` in a shell on both versions) and explain every name that disappeared. Here each one
+  was a core rename, a field of a later module or a name used in another view; the check is cheap
+  and finds lost view extensions that an install never reports.
+- **Smoke test and group-restricted menus**: a menu limited to one of the module's own groups is
+  not shown to admin, so the click test failed on it. `smoke_test.py` now gives admin the
+  module's groups first.
+- **`xpath_check.py`** lists every view locator Odoo 20 cannot apply in one run, without installing
+  the module (each spec node applied separately), instead of one install error per round.
+- **Scanner fixes**: `pytz` is a WARN (still installable, no longer an Odoo requirement);
+  `renamed-partner` no longer matches `.mobile-hidden` CSS or `com.odoo.mobile` (it had 112 hits in
+  20 core, now 0); `company_type` in a view is its own BLOCKER rule; commented-out Python lines are
+  skipped; `override-signature` only compares core methods of the same model (no more
+  `sign.request._schedule_activity` against a sale order helper) and skips methods whose core
+  definition spans several lines. New rules checked on all 20 core modules: zero hits, except
+  `config-param`, which finds two real leftover calls in core (`mail_plugin`, `account_edi_ubl_cii`).

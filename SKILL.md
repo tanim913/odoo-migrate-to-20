@@ -16,7 +16,7 @@ compatibility: >-
   Agent-neutral (Agent Skills format). Needs a shell with bash, python3, git and rsync; an Odoo 20
   checkout with a Python 3.12+ venv; PostgreSQL 16+. Chrome/Chromium for browser tests.
 metadata:
-  version: "1.4.0"
+  version: "1.5.0"
   odoo-target: "20.0"
   odoo-sources: "14.0-19.0"
 ---
@@ -266,6 +266,10 @@ $S/install_test.sh $MIG20_TARGET_ROOT/<project> <module>
 - A failed browser test prints the failing tour step and the paths of the PNG screenshots taken at
   that moment. **Open the screenshots** before guessing: they usually show the cause (an error
   dialog, the wrong page, an element under a modal).
+- When a view locator fails, list all of them at once on a database with the dependencies
+  installed: `MODULE_DIR=<module dir> odoo-bin shell -d <db> --no-http < $S/xpath_check.py`.
+- After `RESULT: CLEAN`, run the registry check (removed hooks still overridden, missing compute
+  methods): `MODULE_DIRS=<module dir> odoo-bin shell -d <db> --no-http < $S/registry_check.py`.
 - For every new kind of break you had to fix by hand, add a `scan.py` rule or check and a line in
   `lessons-learned.md`.
 
