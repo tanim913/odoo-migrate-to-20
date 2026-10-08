@@ -98,6 +98,23 @@ it only narrows existing grants and never creates access. Test an actual own-onl
 user, another record, an administrator and public CRUD denial after loading data.
 Core proof: ir_access._compute_kind and BaseModel._access_domain.
 
+Pattern, proven on a "sales own documents" case: a module granted its agents full `sale.order`
+access without a domain. On the old version the sales rule still limited an agent who was also an
+"own documents" salesperson; on 20 the two grants add up and that agent sees every order. Restore it
+with group-less restrictions whose domain depends on the user, **one row per operation**, each lifted
+for every group that 20 core already grants more on that operation (here the accounting grants that
+20 added: `r` for read-only accountants, `ru` for invoicing users), so the restriction never removes
+access core gives by itself:
+
+```csv
+rule_x_agent_own_read,...,sale.order,,r,"[(1, '=', 1)] if not user.has_group('my_module.group_agent') or user.has_group('sales_team.group_sale_salesman_all_leads') or not user.has_group('sales_team.group_sale_salesman') or user.has_group('account.group_account_invoice') or user.has_group('account.group_account_readonly') else ['|', ('user_id', '=', user.id), ('user_id', '=', False)]"
+rule_x_agent_own_update,...,sale.order,,u,"... same condition without group_account_readonly ..."
+rule_x_agent_own_create_delete,...,sale.order,,cd,"... same condition without the accounting groups ..."
+```
+
+A non-literal domain is evaluated per user at each check (`ir.access` only pre-evaluates literal
+domains), so `user.has_group()` in it is safe. Test it with each kind of user: the restricted one,
+the ones each condition lifts, a plain salesperson (core rule unchanged), and a refused write.
 
 ### `operation` values
 

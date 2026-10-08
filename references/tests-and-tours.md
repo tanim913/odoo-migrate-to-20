@@ -228,3 +228,17 @@ configured a payment provider this way only passed when an earlier run had alrea
 values. Use values the constraint skips by design (e.g. a documented placeholder login), or patch
 the external call the constraint makes, and `env.flush_all()` inside the patched block. Run each
 check script on a fresh database and in more than one order before trusting it.
+
+### Flow tests that miss the code they were written for
+
+- **Create records in every variant the code branches on.** A flow test created contacts without
+  the module's record-type field, so the type-specific part of `create()` never ran; a removed
+  name used there (`odoo.models.NewId`) made every creation of a typed contact fail on 20, and only a
+  later browser test with a typed contact found it.
+- **Set the inputs of computed fields, not the field.** A stored compute (`compute=..., store=True`)
+  is recomputed on create, so a fixture that writes the computed field directly tests nothing.
+- **Rollback-only shell tests must not call methods that commit.** `mail.mail.process_email_queue`
+  commits after each mail, and so do crons that batch with `self.env.cr.commit()`: call the method
+  they wrap instead (e.g. `mails.send(...)` with `_send` patched).
+- **Tracking values are written at commit time** in 20: in a rollback-only test check
+  `record._track_get_fields()` rather than the chatter messages.

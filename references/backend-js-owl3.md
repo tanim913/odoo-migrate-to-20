@@ -137,6 +137,16 @@ line.
 - Always confirm a widget exists before using it:
   `grep -rn 'category("fields").add("<name>"' $ODOO20_SERVER/addons $ODOO20_ENTERPRISE`.
 
+### Field widgets that edited the page DOM
+
+Old widgets often filtered or styled rows with jQuery on global selectors (`$(".o_list_table tr")`),
+which on 20 fails (no jQuery) and, ported as is, also changes every other list on the page. Query
+from the widget's own element (an Owl 3 ref: `ref = signal.ref()`, `t-ref="this.ref"`, then
+`this.ref()?.closest(".o_field_x2many")`), and re-apply the change in `onPatched()`: the list
+re-renders its rows (sorting, paging, edition) and drops direct DOM edits. `onWillUpdateProps`
+still exists in Owl 3 (core `relational_utils.js` uses it); a widget that reacted to every props
+update (e.g. a notification) should remember what it already did for the record.
+
 ## 4. Assets
 
 - A manifest `qweb` key is **ignored** (since 15). Move its entries into `assets` →

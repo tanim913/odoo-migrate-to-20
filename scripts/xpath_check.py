@@ -9,6 +9,9 @@ The module's view records are inserted with SQL (no validation), then each prima
 touch is combined with Odoo's own order (priority, id; depth first; primary children last).
 Each spec node is applied separately, so one failing locator does not hide the next ones. Field
 existence is not checked (the module's models are not loaded), only the locators.
+
+--addons-path must contain the folder of every module installed in that database (test helper
+modules included), or the shell stops before running the script and prints no result line.
 """
 import collections
 import copy

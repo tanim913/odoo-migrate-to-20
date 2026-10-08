@@ -928,6 +928,73 @@ def js_import_checks(module: Path):
     return findings
 
 
+ODOO_MODULE_ALIASES = {"models", "fields", "api", "tools", "http", "exceptions", "osv", "service", "release", "modules", "tests"}
+ODOO_ATTR_HINTS = {
+    "fields.datetime": "odoo.fields no longer re-exports Python's datetime: fields.Datetime.now() or `from datetime import datetime`",
+    "fields.date": "odoo.fields no longer re-exports Python's date: fields.Date.today() / fields.Date.context_today(rec)",
+    "models.NewId": "moved: `from odoo.api import NewId`",
+    "models.ValidationError": "import it from odoo.exceptions",
+    "api.returns": "@api.returns was removed: drop the decorator",
+    "exceptions.Warning": "-> UserError",
+    "tools.ustr": "removed: use str()",
+}
+
+
+def _odoo_module_attributes(tree):
+    """(module alias target, attribute, line) for `X.attr` where X comes from `from odoo import X` at module
+    level and is not rebound in the enclosing function (a `fields` argument is not odoo.fields)."""
+    bound = {}
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom) and node.module == "odoo" and node.level == 0:
+            for a in node.names:
+                if a.name in ODOO_MODULE_ALIASES:
+                    bound[a.asname or a.name] = a.name
+    if not bound:
+        return []
+    found = []
+
+    def local_names(fn):
+        if isinstance(fn, ast.Lambda):
+            return {a.arg for a in fn.args.args}
+        names = {a.arg for a in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs}
+        names |= {x.arg for x in (fn.args.vararg, fn.args.kwarg) if x}
+        for node in ast.walk(fn):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                names.add(node.id)
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                names.update(a.asname or a.name.split(".")[0] for a in node.names)
+        return names
+
+    def visit(node, hidden):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+            hidden = hidden | local_names(node)
+        if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
+                and node.value.id in bound and node.value.id not in hidden):
+            found.append((bound[node.value.id], node.attr, node.lineno))
+        for child in ast.iter_child_nodes(node):
+            visit(child, hidden)
+
+    module_level = {t.id for n in tree.body if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name)}
+    visit(tree, module_level)
+    return found
+
+
+_CORE_PATCHES = None
+
+
+def _core_module_patches():
+    """(module, attribute) that core addons add to odoo modules at load time, e.g. fields.Serialized."""
+    global _CORE_PATCHES
+    if _CORE_PATCHES is None:
+        import subprocess
+        _CORE_PATCHES = set()
+        out = subprocess.run(["grep", "-rhoE", "--include=*.py", r"^\s*(" + "|".join(sorted(ODOO_MODULE_ALIASES)) + r")\.\w+\s*=",
+                              *map(str, CORE_PY_DIRS)], capture_output=True, text=True).stdout if CORE_PY_DIRS else ""
+        for m in re.finditer(r"(\w+)\.(\w+)\s*=", out):
+            _CORE_PATCHES.add((m.group(1), m.group(2)))
+    return _CORE_PATCHES
+
+
 def py_odoo_import_checks(module: Path):
     """Every `odoo.*` import must work on Odoo 20: really imported with ODOO20_PYTHON, so re-exports count."""
     import subprocess
@@ -935,6 +1002,8 @@ def py_odoo_import_checks(module: Path):
         return []
     own = {module.name} | {p.name for p in module.parent.iterdir() if (p / "__manifest__.py").exists()}
     wanted = {}  # (modname, name or None) -> first (file, line, guarded)
+    attr_uses = {}  # ("odoo.fields", "datetime") -> first (file, line, False): `fields.datetime` after `from odoo import fields`
+    attr_count = {}
     for path in module.rglob("*.py"):
         if "__pycache__" in path.parts:
             continue
@@ -960,6 +1029,13 @@ def py_odoo_import_checks(module: Path):
                 if len(parts) > 2 and parts[1] == "addons" and parts[2] in own:
                     continue
                 wanted.setdefault((mod, name), (path.relative_to(module), node.lineno, id(node) in guarded))
+        for attr_mod, attr, line in _odoo_module_attributes(tree):
+            attr_uses.setdefault((f"odoo.{attr_mod}", attr), (path.relative_to(module), line, False))
+            attr_count[(f"odoo.{attr_mod}", attr)] = attr_count.get((f"odoo.{attr_mod}", attr), 0) + 1
+    patched = _core_module_patches()
+    attr_uses = {k: v for k, v in attr_uses.items() if (k[0].split(".", 1)[1], k[1]) not in patched}
+    for key, value in attr_uses.items():
+        wanted.setdefault(key, value)
     if not wanted:
         return []
     probe = r'''
@@ -1007,6 +1083,17 @@ print(json.dumps(res))
         if status == "ok":
             continue
         full = f"{mod}.{name}" if name else mod
+        if (mod, name) in attr_uses and status == "noname":
+            short = f"{mod.split('.', 1)[1]}.{name}"
+            hint = ODOO_ATTR_HINTS.get(short, "grep the Odoo 20 source for its new name or location")
+            findings.append(dict(rule="odoo-attr-missing", area="python", severity="RUNTIME", file=str(rel), line=line,
+                                 text=short, message=f"'{short}' does not exist in Odoo 20 ({mod} has no '{name}'): "
+                                 f"AttributeError when the line runs. {hint}"
+                                 + (f" ({attr_count[(mod, name)]} uses in the module: grep them all)" if attr_count.get((mod, name), 0) > 1 else ""),
+                                 ref="python-orm.md", auto=""))
+            continue
+        if (mod, name) in attr_uses:
+            continue  # the module itself is reported by its import line
         if is_guarded and status in ("nomodule", "noname"):
             sev, msg = "SILENT", (f"'{full}' does not exist in Odoo 20 and the import is inside try/except ImportError: "
                                   "on 20 the except branch always runs, so the feature is silently off. Import the new name")

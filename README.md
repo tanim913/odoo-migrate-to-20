@@ -189,6 +189,8 @@ Beyond regular expressions, `scan.py`:
   missing file breaks the whole asset bundle;
 - imports every third-party library with your Odoo 20 Python;
 - compares every override of a core method with its Odoo 20 signature;
+- checks every name used through an Odoo module (`fields.X`, `models.X`, `api.X`, …) exists in Odoo 20,
+  not only the import lines (`fields.datetime`, `models.NewId` were removed);
 - checks every external xmlid the module references against Odoo 20;
 - finds methods defined twice in one class (a rename can make one override replace another),
   `_login` overrides that drop `super()`, old `group_expand` signatures, computes that only assign

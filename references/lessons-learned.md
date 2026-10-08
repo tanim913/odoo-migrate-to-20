@@ -271,3 +271,22 @@ detected. If `scan.py` could have caught it, add a rule there too.
   `sign.request._schedule_activity` against a sale order helper) and skips methods whose core
   definition spans several lines. New rules checked on all 20 core modules: zero hits, except
   `config-param`, which finds two real leftover calls in core (`mail_plugin`, `account_edi_ubl_cii`).
+
+## 2026-10-08: same hub module, after review (widget modules, agent access, contact creation)
+
+- **Names used through odoo modules are not imports.** `models.NewId` and `fields.datetime.now()`
+  (removed from `odoo.models` / `odoo.fields` in 20) passed the real-import check, because the
+  import line was `from odoo import fields, models`. They broke the creation of every typed contact
+  and a stage timestamp. New scan check `odoo-attr-missing` resolves each `X.attr` on Odoo 20
+  (scope-aware: a function argument named `fields` is not the module; attributes core addons add at
+  load time, such as `fields.Serialized`, are known). On all of 20 core it reports two real
+  leftovers in core itself (`models.ValidationError` in mail, `fields.date` in an unreachable
+  branch of a commission report), nothing else. A probe script that imports Odoo must put the
+  server folder on `sys.path` and fail loudly: a silent import failure made a first version of
+  this check report zero hits everywhere.
+- **Widgets the module uses may live in modules outside the migration scope.** Grep the smoke-test
+  browser log for `Missing widget:`; here two small widget modules were added to the scope.
+- **Restoring an old own-documents restriction** needs per-operation group-less rows lifted for the
+  grants 20 core adds (security-ir-access.md).
+- **Flow tests**: create each record variant the code branches on; no committing methods in
+  rollback-only tests (tests-and-tours.md).
