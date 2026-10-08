@@ -78,6 +78,8 @@ RULES = [
     ("config-param", "python", "RUNTIME", [PY, XML], "any",
      r"""ir\.config_parameter['"]\]\s*(?:\.sudo\(\))?\s*\.(?:get|set)_param\(|\b\w*(?:ICP|IrConfig\w*|config_param\w*|params?)\.(?:get|set)_param\(""",
      "ir.config_parameter get_param/set_param removed -> get_str/get_bool/get_int/get_float, set_str/set_bool/... (also in QWeb templates)", "python-orm.md", ""),
+    ("signup-url", "python", "RUNTIME", [PY, XML], "any", r"\.signup_url\b",
+     "res.users/res.partner signup_url field removed in 20 -> partner._get_signup_url()", "field-model-renames.md", ""),
     ("get-view-tree", "python", "SILENT", [PY], "server", r"""view_type\s*(==|!=)\s*['"]tree['"]|view_type\s+(not\s+)?in\s+[\[(][^\])]*['"]tree['"]|xpath\(\s*['"]/{1,2}tree\b""",
      "list views are view_type 'list' with a <list> root in 20: this get_view branch never runs", "views-xml-data.md", ""),
     ("precision-uom", "python", "RUNTIME", [PY], "any", r"""(digits\s*=\s*|precision_get\(\s*|get_precision\(\s*)['"]Product Unit of Measure['"]""",
@@ -1213,6 +1215,9 @@ def scan(module: Path, area=None):
             content = re.sub(r"<!--.*?-->", lambda m: re.sub(r"[^\n]", " ", m.group(0)), content, flags=re.S)
         elif path.suffix == ".py":  # same for commented-out Python lines
             content = re.sub(r"(?m)^[ \t]*#.*$", lambda m: " " * len(m.group(0)), content)
+        elif path.suffix == ".js":  # and for JS comments: whole-line // comments and /* ... */ blocks
+            content = re.sub(r"(?m)^[ \t]*//.*$", lambda m: " " * len(m.group(0)), content)
+            content = re.sub(r"(?m)^[ \t]*/\*.*?\*/", lambda m: re.sub(r"[^\n]", " ", m.group(0)), content, flags=re.S)
         line_starts = [0] + [m.end() for m in re.finditer(r"\n", content)]
         lines = content.splitlines()
         for rule, rx in compiled:

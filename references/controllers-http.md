@@ -41,3 +41,33 @@ Portal and website controller hook changes are in website-sale-portal.md.
 - Routes called from JS with `rpc()` must be `type='jsonrpc'`. Plain `<form method="post">` targets
   stay `type='http'` and need `csrf_token`.
 - Where a method returns `request.render(...)`, check that the template id still exists in 20.
+
+### Public links that act on a record id
+
+A public route that takes a record id and does something to it (reset a password, unsubscribe,
+confirm, show a document) lets anyone act on every record by counting ids; seen: a "set up your
+account" link that redirected any visitor to a valid password reset page of any user. Sign the link
+instead of trusting the id:
+
+```python
+from odoo import api, models, tools
+from odoo.tools import consteq
+
+class ResPartner(models.Model):
+    _inherit = 'res.partner'
+
+    @api.private                     # callable from QWeb mail templates, not over RPC
+    def x_unsubscribe_token(self):
+        self.ensure_one()
+        return tools.hmac(self.env(su=True), 'x_module.unsubscribe', self.id)
+
+# controller
+partner = request.env['res.partner'].sudo().browse(partner_id).exists()
+if not partner or not token or not consteq(str(token), partner.x_unsubscribe_token()):
+    raise request.not_found()
+```
+
+Templates: `t-attf-href="/x/unsubscribe/#{object.id}?token=#{object.x_unsubscribe_token()}"`. Use a
+separate scope per purpose, limit what the link may do (e.g. account set-up only while the user has
+never logged in: `not user.login_date`), and send JSON follow-ups (feedback forms) with the same
+token. Links already sent without a token stop working: redirect them to the standard page.

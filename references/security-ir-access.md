@@ -121,3 +121,10 @@ the ones each condition lifts, a plain salesperson (core rule unchanged), and a 
 `operation` is a selection whose keys are the letters in `crud` order (`ir_access.py`
 `CRUD_SELECTION`): `cr` is valid, `rc` is not. An invalid value is inserted as NULL and the install
 stops with `null value in column "operation"`. `scan.py` rule `ir-access-operation`.
+
+- **Vendor groups that grant administration to everyone.** A module group that implies
+  `base.group_erp_manager` or `base.group_system` and is also given to every new user
+  (`base.default_user_group`, or `base.default_user` on old versions) makes every new internal user
+  an administrator. Check `implied_ids` of the module's groups; drop the admin implication unless the
+  module needs it, and note that old versions stored implied memberships per user (the data upgrade
+  must review those users).

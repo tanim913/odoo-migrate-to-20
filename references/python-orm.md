@@ -95,6 +95,11 @@ than changing a custom public contract to match an unrelated method.
   and can point at a compute that no longer exists (install fails at the first recompute). Redefine
   only what changes: `pricelist_id = fields.Many2one(tracking=1)`; the ORM merges it with the core
   definition. If the core field itself is gone, move the change to its 20 replacement.
+- **Copied core methods.** A module that copied a whole core method (often to add one `if`) keeps
+  calling the old helpers: on 20 such a copy of `res.users._action_reset_password` passed the
+  removed `expiration` argument to `signup_prepare`, so every password reset failed, the standard
+  "forgot password" included. `override-signature` flags the changed signature; then diff the copy
+  against the 17 core method, keep only the custom delta and call `super()` for the rest.
 - **Hooks removed from core.** An override that calls `super()` of a method no 20 class defines is
   never called, and its `super()` would raise. The static rule `override-gone` matches method
   names only, so a same-named method of another model hides it (example: `res.partner.action_view_sale_order`

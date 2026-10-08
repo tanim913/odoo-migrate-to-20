@@ -51,6 +51,10 @@ value is HTML that is not already an Html field or Markup: if so, wrap it in Pyt
 
 ## Mail templates (`mail.template` records)
 
+- `auth_signup.reset_password_email` (a QWeb view) has no `<table>` on 20, only text under its
+  root: an inheriting view that replaced `//table` (the whole 17 email) must replace `/t`, keeping
+  `t-name`; its link is `object.partner_id._get_signup_url()`.
+
 - **20 renders every mail template at install** (`mail.template._check_can_be_rendered`, with a
   sample record when demo data exist). A template that calls a removed API
   (`ir.config_parameter.get_param`) or `env.ref('<module>.<xmlid>')` of a module outside the

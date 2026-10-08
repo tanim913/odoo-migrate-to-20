@@ -240,5 +240,12 @@ check script on a fresh database and in more than one order before trusting it.
 - **Rollback-only shell tests must not call methods that commit.** `mail.mail.process_email_queue`
   commits after each mail, and so do crons that batch with `self.env.cr.commit()`: call the method
   they wrap instead (e.g. `mails.send(...)` with `_send` patched).
+- **Public pages load the Interactions lazily** (`web.assets_frontend_lazy` after
+  `document.readyState === 'complete'`): a `browser_js` test that clicks right away clicks before
+  the Interaction is attached and nothing happens. Retry the action inside the wait loop until the
+  page reacts.
+- **A login is a `res.users.log` row created by that user** (`login_date` is related to it):
+  `env['res.users.log'].with_user(user).sudo().create({})`; `user.sudo()._update_last_login()` logs
+  the current user instead.
 - **Tracking values are written at commit time** in 20: in a rollback-only test check
   `record._track_get_fields()` rather than the chatter messages.

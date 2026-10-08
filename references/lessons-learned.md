@@ -290,3 +290,20 @@ detected. If `scan.py` could have caught it, add a rule there too.
   grants 20 core adds (security-ir-access.md).
 - **Flow tests**: create each record variant the code branches on; no committing methods in
   rollback-only tests (tests-and-tours.md).
+
+## 2026-10-09: messaging and identity modules (SMS gateway, notification emails, an MFA connector)
+
+- **Public routes acting on ids** were the main finding: a password "set up" link that let anyone
+  reset any user's password, and unsubscribe links working for any contact id. Signed links with
+  `tools.hmac` + `consteq` and `@api.private` token helpers (controllers-http.md).
+- **A copied core method broke a core flow for everyone**: every password reset failed because a
+  module carried a 17 copy of `_action_reset_password` (python-orm.md).
+- **Credentials models** (API secrets) had an access row for everyone; when every reader uses
+  `sudo()`, restrict the model to `base.group_system`.
+- **A vendor group implied Access Rights administration and was given to all new users**
+  (security-ir-access.md).
+- **Methods called across the dependency direction** (a wizard of module A calling a method that
+  module B, which depends on A, adds): move the method to A. Same check as for fields of dependent
+  modules (lessons of the large hub module above).
+- Scanner: new rule `signup-url` (0 hits on 20 core); JS comments (`//` lines, `/* */` blocks) are
+  no longer matched by the regex rules (fewer false positives, e.g. jQuery in commented-out code).
