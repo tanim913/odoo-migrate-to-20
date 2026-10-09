@@ -16,7 +16,7 @@ compatibility: >-
   Agent-neutral (Agent Skills format). Needs a shell with bash, python3, git and rsync; an Odoo 20
   checkout with a Python 3.12+ venv; PostgreSQL 16+. Chrome/Chromium for browser tests.
 metadata:
-  version: "1.7.0"
+  version: "1.8.0"
   odoo-target: "20.0"
   odoo-sources: "14.0-19.0"
 ---
@@ -303,6 +303,9 @@ fails the run.
     module's `static/tests/tours/`.
 - Flows a tour can't reach (external services, cron, mail gateways): exercise them with
   `odoo-bin shell` on a `--keep` database, then drop that database.
+- **Portal and website modules:** compare the pages per role with the old version (same seeded
+  users on both databases; structure snapshot: headings, buttons, fields, links, ids) and explain
+  every difference (`tests-and-tours.md`). It finds visible losses that no test asserts.
 
 ### 7. Review
 

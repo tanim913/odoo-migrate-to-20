@@ -73,6 +73,31 @@ For each inherited template:
 Confirm the `portal.entry` fields first: `grep -n "fields\." $ODOO20_SERVER/addons/portal/models/portal_entry.py`.
 For a sample, see `$ODOO20_SERVER/addons/sale/data/portal_entry_data.xml`.
 
+### Who sees which card
+
+`portal.entry._filter_visible_portal_cards()` only decides which **configuration** cards are
+shown; the others are shown by the counters (`/my/counters`) as soon as their count is positive.
+To hide cards from some users (an old `t-if` on the card templates), filter `portal_cards`,
+`portal_hidden_cards` and `portal_entries` in an override of
+`CustomerPortal._prepare_portal_layout_values()`. Map rules to entry XML IDs in Python rather than
+writing fields on core entries (they are `noupdate` and skipped on module update).
+
+### `/my/account`, `/my/address` and the old form hooks
+
+- Odoo 20 replaced the `/my/account` form by the address form (`portal.address_form_fields`, saved
+  by JavaScript to `/my/address/submit`, fields filtered by `res.partner._get_frontend_writable_fields()`).
+  `details_form_validate`, `_get_mandatory_fields` / `_get_optional_fields`, `on_account_update`,
+  website_sale `checkout_form_validate`, `_get_mandatory_fields_billing/shipping`,
+  `values_postprocess`, `_checkout_form_save` and `country.get_website_sale_states/countries` are
+  gone (scan `portal-removed-hooks`). A large custom profile is easier to keep as its own template
+  posted to its own handler (re-implementing the old rules) than to fold into the address form.
+- Core owns `/my/address` (GET form) and `/my/addresses`: a custom route with that path collides;
+  give it another path and update the links.
+- Templates read `user_id` without sudo (`env.user.with_env(env)`): records reached from it
+  (`user_id.partner_id.some_m2o.field`) need portal read access, or sudo in the controller.
+- A domain through a model the portal user cannot read (`('product_id.categ_id.name', ...)`)
+  returns nothing instead of failing; search with sudo on an explicitly own-records domain.
+
 ## Website pages and forms
 
 - `website.page` records: `date_publish` is removed. `url`, `view_id`, `is_published` and

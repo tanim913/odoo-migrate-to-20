@@ -124,3 +124,16 @@ Gone: `web.assets_common`, `web_editor.*`, `website.assets_wysiwyg_inside`,
 - `publicWidget|public_widget|web\.public\.widget|odoo\.define\(`
 - `\$\(|jQuery|\.\$el\b|\$target|\$\.ajax`
 - `web\.ajax|ajax\.jsonRpc|this\._rpc\(|rpc_service|trigger_up\(`
+
+## Replacing DOM and the website form
+
+- Markup inserted by your code (a modal rendered by an RPC) has no Interactions: call
+  `this.services["public.interactions"].stopInteractions(old)` before replacing it and
+  `startInteractions(newEl)` after (or use `this.insert` / `this.renderAt`, which do it).
+- The website `Form` Interaction resets its form in `willStart` (after an awaited reCAPTCHA load and
+  user read) and only then handles submit. Values typed or set by other code before that are lost,
+  and a click on the submit button before it starts posts the form natively (to `/website/form/`
+  without the model). Set a ready class in a patched `Form.start()` and only submit (and, in tours,
+  only fill in) once it is there.
+- Date fields filled by your own picker Interaction: also set `defaultValue`, so `form.reset()`
+  keeps them.

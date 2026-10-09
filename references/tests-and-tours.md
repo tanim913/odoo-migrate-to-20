@@ -200,6 +200,17 @@ shipped, unless the user wants it in the module's `static/tests/tours`.
 
    Never leave `watch`, `debug`, `pause` or `break` in committed code.
 
+## Compare the pages per role with the old version
+
+Install, smoke, route and tour tests do not tell you that something visible disappeared. For portal
+and website modules, snapshot the same pages for each role on the old and the new version
+(headings, buttons, form fields, links, element ids, final URL) and explain every difference.
+On a portal migration this found pages that had silently lost their breadcrumbs (`qweb-tcall-scope`)
+while every test passed. Seed the same test users and records on both databases first.
+
+The `edit` run helper does not handle `<input type="time">` (it throws `Cannot read properties of
+null (reading 'toISOString')`); set the value in a `run() { this.anchor.value = ...; dispatchEvent(change) }`.
+
 ## Verify that browser tests actually ran
 
 A clean installation is not evidence that tests ran. On an already installed test

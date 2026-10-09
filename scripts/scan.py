@@ -80,6 +80,17 @@ RULES = [
      "ir.config_parameter get_param/set_param removed -> get_str/get_bool/get_int/get_float, set_str/set_bool/... (also in QWeb templates)", "python-orm.md", ""),
     ("signup-url", "python", "RUNTIME", [PY, XML], "any", r"\.signup_url\b",
      "res.users/res.partner signup_url field removed in 20 -> partner._get_signup_url()", "field-model-renames.md", ""),
+    ("portal-removed-hooks", "website-sale", "WARN", [PY], "any",
+     r"def (details_form_validate|checkout_form_validate|_get_mandatory_fields_(billing|shipping)|values_postprocess|_checkout_form_save)\(|\.get_website_sale_(states|countries)\(|\bcan_edit_vat\(",
+     "portal/website_sale account and checkout form hooks removed in 20 (core no longer calls them; /my/account and "
+     "/shop/address use the address form + _parse_form_data/_validate_address_values); can_edit_vat -> "
+     "not _has_confirmed_documents()", "website-sale-portal.md", ""),
+    ("country-zip-required", "python", "RUNTIME", [PY, XML], "any", r"\.zip_required\b",
+     "res.country.zip_required removed in 20 -> zip_applicability == 'required'", "field-model-renames.md", ""),
+    ("partner-title", "python", "RUNTIME", [PY, XML, JS], "any",
+     r"['\"]res\.partner\.title['\"]|\bpartner\w*\.title\b(?!\s*\()|name=['\"]title['\"][^>]*model=['\"]res\.partner",
+     "res.partner.title model and res.partner.title field removed in Odoo 19: declare them in a module "
+     "(same names keep the data of an upgraded database) or use another field", "field-model-renames.md", ""),
     ("get-view-tree", "python", "SILENT", [PY], "server", r"""view_type\s*(==|!=)\s*['"]tree['"]|view_type\s+(not\s+)?in\s+[\[(][^\])]*['"]tree['"]|xpath\(\s*['"]/{1,2}tree\b""",
      "list views are view_type 'list' with a <list> root in 20: this get_view branch never runs", "views-xml-data.md", ""),
     ("precision-uom", "python", "RUNTIME", [PY], "any", r"""(digits\s*=\s*|precision_get\(\s*|get_precision\(\s*)['"]Product Unit of Measure['"]""",
@@ -518,7 +529,10 @@ def xmlid_checks(module: Path):
     for path in sorted(module.rglob("*.xml")):
         if path.relative_to(module).parts[0] == "static":
             continue
-        for i, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        text = path.read_text(errors="replace")
+        # commented-out markup is not code: blank it, keeping line numbers
+        text = re.sub(r"<!--.*?-->", lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, flags=re.S)
+        for i, line in enumerate(text.splitlines(), 1):
             for m in XMLID_RX.finditer(line):
                 raw = next(g for g in m.groups() if g)
                 for ref in raw.split(","):
@@ -575,8 +589,11 @@ def misc_checks(module: Path):
                     add("ir-access-operation", "security", "BLOCKER", path, i, ",".join(v or "" for v in row.values()),
                         f"operation '{op}' is not a valid value: letters in 'crud' order (e.g. 'cr', not 'rc'); "
                         "an invalid value is inserted as NULL and the install fails", "security-ir-access.md")
+        elif path.suffix == ".xml" and path.relative_to(module).parts[0] != "static":
+            findings += _qweb_xml_checks(module, path)
         elif path.suffix == ".py":
             text = path.read_text(errors="replace")
+            findings += _binary_bytes_checks(module, path, text)
             if not re.search(r"payment\.provider|payment_provider|from odoo\.addons\.payment", text):
                 continue
             if re.search(r"^\s+state\s*=\s*fields\.", text, re.M):
@@ -586,6 +603,82 @@ def misc_checks(module: Path):
                     add("payment-provider-state", "python", "BLOCKER", path, i, line,
                         "payment.provider.state removed in 20: 'disabled' -> active=False, 'enabled' -> is_live=True, "
                         "'test' -> is_live=False (check the model this line is about)", "python-orm.md")
+    return findings
+
+
+def _finding(module, path, line, text, rule, area, sev, msg, ref):
+    return dict(rule=rule, area=area, severity=sev, file=str(path.relative_to(module)), line=line,
+                text=text.strip()[:160], message=msg, ref=ref, auto="")
+
+
+def _binary_bytes_checks(module, path, text):
+    """base64.b64encode(...) written as a value (dict value, item or attribute assignment) without
+    .decode(): Odoo 20 binary fields reject bytes (TypeError 'use BinaryValue instead of bytes')."""
+    findings = []
+    lines = text.splitlines()
+    for m in re.finditer(r"base64\.(b64encode|encodebytes)\(", text):
+        depth, i = 1, m.end()
+        while i < len(text) and depth:
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            i += 1
+        if text[i:i + 7] == ".decode":
+            continue
+        before = text[text.rfind("\n", 0, m.start()) + 1:m.start()]
+        if before.lstrip().startswith("#"):
+            continue
+        # value written to a binary field: 'datas' / image* keys of a dict or subscript, or a record attribute
+        if re.search(r"""(['"](datas|image\w*)['"]\s*(:|\]\s*=)\s*|\b(self|rec|record|\w+_id|\w*partner\w*|\w*attachment\w*)\.\w+\s*=\s*)$""", before):
+            line = text.count("\n", 0, m.start()) + 1
+            findings.append(_finding(module, path, line, lines[line - 1], "binary-bytes", "python", "RUNTIME",
+                                     "Odoo 20 binary fields reject bytes: write base64 text (b64encode(...).decode()), "
+                                     "odoo.tools.BinaryBytes(raw), or ir.attachment 'raw' with the raw bytes", "python-orm.md"))
+    return findings
+
+
+def _qweb_xml_checks(module, path):
+    """Server QWeb: t-call attributes are Python expressions in Odoo 20; Owl-only / removed
+    directives; layout parameters a nested template no longer sees after the 19.1 t-call conversion."""
+    import ast
+    from lxml import etree
+    findings = []
+    try:
+        root = etree.parse(str(path)).getroot()
+    except (etree.XMLSyntaxError, OSError):
+        return findings
+    for el in root.iter():
+        if not isinstance(el.tag, str):
+            continue
+        # client-side (Owl) templates of backend views (kanban <templates>, list/form archs) accept t-key
+        if any(a.tag in ("templates", "kanban", "list", "form") for a in el.iterancestors() if isinstance(a.tag, str)):
+            continue
+        for attr in ("t-key", "t-nocache"):
+            if attr in el.attrib:
+                findings.append(_finding(module, path, el.sourceline, etree.tostring(el).decode()[:160].split("\n")[0],
+                                         "qweb-unknown-directive", "qweb", "WARN",
+                                         f"{attr} is not a server QWeb directive in 20 (warning 'Unknown directives' at "
+                                         "every render): remove it", "qweb-reports-mail.md"))
+        call = el.get("t-call")
+        if not call:
+            continue
+        for key, value in el.attrib.items():
+            if key.startswith("t-") or key.endswith((".f", ".translate")) or key.startswith("{") or not value.strip():
+                continue
+            try:
+                ast.parse(value.strip(), mode="eval")
+            except SyntaxError:
+                findings.append(_finding(module, path, el.sourceline, f'<t t-call="{call}" {key}="{value}">',
+                                         "qweb-tcall-attr", "qweb", "BLOCKER",
+                                         f"attribute {key} of a t-call is evaluated as a Python expression in 20: the "
+                                         "page fails to render (use name.f for text, or drop it)", "qweb-reports-mail.md"))
+        if call == "portal.portal_layout" and "breadcrumbs_searchbar" in el.attrib:
+            for inner in el.iter():
+                if inner is not el and inner.get("t-call") == "portal.portal_searchbar" and "breadcrumbs_searchbar" not in inner.attrib:
+                    findings.append(_finding(module, path, inner.sourceline, f'<t t-call="portal.portal_searchbar" ...>',
+                                             "qweb-tcall-scope", "qweb", "SILENT",
+                                             "breadcrumbs_searchbar is given to portal.portal_layout only: the searchbar "
+                                             "called in its body does not see it and the page loses its breadcrumbs "
+                                             "(19.1 t-call conversion) -> pass it to the searchbar call too, as core does",
+                                             "qweb-reports-mail.md"))
     return findings
 
 

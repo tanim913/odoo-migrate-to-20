@@ -65,6 +65,15 @@ and `odoo/models/__init__.py` re-exports it.
 
 Model and field renames are in field-model-renames.md.
 
+## Binary fields take text or `BinaryBytes`, not `bytes`
+
+Odoo 20 binary fields reject `bytes` (`TypeError: ... use BinaryValue instead of bytes`): a base64
+`str` is decoded, `odoo.tools.BinaryBytes(raw)` is stored as is, and `ir.attachment` takes raw
+bytes in `raw`. The old idiom `{'datas': base64.b64encode(pdf)}` or
+`record.image_1920 = base64.b64encode(file.read())` now fails, typically in a wizard or a portal
+form that no install or smoke test reaches. Write `base64.b64encode(x).decode()`, `BinaryBytes(x)`
+or `'raw': x` (core: `grep -rn "'raw':" $ODOO20_SERVER/addons/account`). Scan rule `binary-bytes`.
+
 ## Writing style for rewritten code
 
 - `self.env._("text %s", x)` is preferred for translations in 18+; `_` from `odoo` still works.

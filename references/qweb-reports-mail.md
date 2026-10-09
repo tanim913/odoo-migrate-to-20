@@ -71,3 +71,22 @@ value is HTML that is not already an Html field or Markup: if so, wrap it in Pyt
 | `t-esc` inside `body_html` | `t-out` (same silent-blank rule) |
 
 `${` is rendered literally in 15+, so the email shows `${object.name}`.
+
+## `t-call` attributes, scope and directives (server QWeb, Odoo 20)
+
+- **Every plain attribute of a `t-call` is a Python expression passed to the callee.** A leftover
+  `<t t-call="portal.portal_table" class="d-none d-md-block">` (ignored before) fails the whole
+  page with `SyntaxError`. Use `name.f="text"` for text, `name.translate` for translated text, or
+  drop the attribute. Scan rule `qweb-tcall-attr`.
+- **The body of a `t-call` runs in the caller's scope.** The 19.1 converter turns
+  `<t t-call="portal.portal_layout"><t t-set="breadcrumbs_searchbar" t-value="True"/>` into an
+  attribute of the layout call; a template called inside the body (`portal.portal_searchbar`) no
+  longer sees it, and the page silently loses its breadcrumbs. Pass the value to the inner call too,
+  as core does (`account.portal_my_invoices`). Scan rule `qweb-tcall-scope` (it also finds one core
+  leftover, `event.portal_my_events`). For other names, check what the inner templates read.
+- **Owl-only and removed directives** (`t-key`, `t-nocache`) in server templates log
+  "Unknown directives or unused attributes" at every render. Remove them. Scan rule
+  `qweb-unknown-directive` (kanban `<templates>` are Owl and keep `t-key`).
+- **Mail templates are rendered when they are saved** (`mail.template._check_can_be_rendered`). A
+  module that writes a template body reading a field of another module must depend on it, or its
+  install fails before that module loads ("object has no attribute").

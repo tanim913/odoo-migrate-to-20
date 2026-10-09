@@ -307,3 +307,35 @@ detected. If `scan.py` could have caught it, add a rule there too.
   modules (lessons of the large hub module above).
 - Scanner: new rule `signup-url` (0 hits on 20 core); JS comments (`//` lines, `/* */` blocks) are
   no longer matched by the regex rules (fewer false positives, e.g. jQuery in commented-out code).
+
+## 2026-10-09: portal core modules (custom /my home, profile, addresses, website forms, card payments)
+
+- **The portal account form and the checkout address hooks are gone.** `/my/account` became the
+  address form; `details_form_validate`, `_get_mandatory/optional_fields`, `checkout_form_validate`
+  and friends are never called. A large custom profile was kept as its own template posted to its own
+  handler, with the old rules re-implemented; core owns `/my/address`, so the custom page moved
+  (website-sale-portal.md; scan `portal-removed-hooks`).
+- **Hiding home cards by role:** filter the cards in `_prepare_portal_layout_values`;
+  `_filter_visible_portal_cards` only covers configuration cards (website-sale-portal.md).
+- **`t-call` attributes are expressions and the body keeps the caller's scope.** A `class` on a
+  `t-call` broke a page; the 19.1 converter left the searchbar without `breadcrumbs_searchbar`, so
+  list pages lost their breadcrumbs with every test green; `t-key`/`t-nocache` warn at every render
+  (qweb-reports-mail.md; scan `qweb-tcall-attr`, `qweb-tcall-scope`, `qweb-unknown-directive`).
+  The breadcrumb loss was found only by comparing the pages per role with the old version
+  (tests-and-tours.md).
+- **Binary fields reject bytes**: two wizards and a profile picture upload wrote
+  `base64.b64encode(...)` (python-orm.md; scan `binary-bytes`).
+- **Mail templates are rendered on save**: a module overriding an email that reads another module's
+  field must depend on it.
+- **Website form Interaction resets the form when it starts**: fields filled earlier are lost and an
+  early click posts natively; mark readiness, tours wait for it (website-interactions.md).
+- **Removed/changed APIs found:** `res.partner.title` (19), `country.zip_required`, `can_edit_vat`,
+  `get_current_website()`, optional product category (field-model-renames.md; scan `partner-title`,
+  `country-zip-required`).
+- **Group-less ACL rows are open to portal and public** (`base.group_everyone` includes them):
+  replace them by the same rights for `base.group_user` plus explicit portal/public rows, then test
+  every role; pages that relied on the open rows (path searches, reads through `user_id`) need sudo
+  on an own-records domain or an own-records rule.
+- Scanner: the external-XML-ID check skipped commented-out markup for regex rules only; it now
+  ignores comments too. New rules checked on all 20 core and enterprise modules: one hit, a real
+  core leftover (`event.portal_my_events` loses its breadcrumbs).

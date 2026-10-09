@@ -33,6 +33,11 @@ per area. Always confirm the field in 20:
 | **20** | `stock.move`, `stock.move.line` | `product_uom`, `product_uom_id` | **`uom_id`** |
 | **20** | `res.partner` | `company_type` | removed (`is_company`); `default_company_type` in contexts too. A `<field name="company_type"/>` in a view stops the install |
 | **20** | `res.partner` | `team_id`, `company_name`, `sla_ids` (helpdesk), `property_payment_method_id` (account_check_printing), `mobile_blacklisted` | removed; `commercial_company_name` is a stored related field. A module that still needs one defines the field itself (and keeps the column in the data upgrade) |
+| **19** | `res.partner.title` | model and `res.partner.title` field | removed from core. A module that shows or edits titles declares `_name = 'res.partner.title'` and the `title` Many2one again (same names keep the table and column of an upgraded database); the 5 default titles are gone too (scan `partner-title`) |
+| **20** | `res.country` | `zip_required` | `zip_applicability` (`'required'`, `'optional'`, `'not_applicable'`) (scan `country-zip-required`) |
+| **20** | `res.partner` | `can_edit_vat()` | `not _has_confirmed_documents()` |
+| **20** | `website` | `get_current_website()` | `self.env.website` (from the request context; in the back office fall back to the company's website) |
+| **20** | `product.template` | `categ_id` required (default "All") | optional: a domain `('categ_id.name', '!=', X)` now also drops products without a category; add `'|', ('categ_id', '=', False)` |
 | **20** | `res.partner` method | `action_view_sale_order` | removed: the Sales smart button is `type="action" name="sale.act_res_partner_2_sale_order"` |
 | **20** | `sale.subscription.pricing` model | `product_template_id`, `product_variant_ids`, `price`, `plan_id`, `pricelist_id` | merged into `product.pricelist.item`: rules with a `plan_id` (`product.template.subscription_rule_ids`), `product_tmpl_id`, `product_id`, `fixed_price`. `pricelist_id` gets a default pricelist on create: pass `pricelist_id: False` for a rule that applies to every pricelist |
 | **20** | `account.move.send` | several invoices in one wizard (`mode != 'invoice_single'`) | `account.move.send.batch.wizard` (`move_ids`; the helpers `_get_default_mail_template_id`, `_get_default_mail_partner_ids` are on the shared abstract `account.move.send`) |
