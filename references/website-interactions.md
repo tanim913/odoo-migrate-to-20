@@ -137,3 +137,19 @@ Gone: `web.assets_common`, `web_editor.*`, `website.assets_wysiwyg_inside`,
   only fill in) once it is there.
 - Date fields filled by your own picker Interaction: also set `defaultValue`, so `form.reset()`
   keeps them.
+
+## Website form, signup and rendering details (20)
+
+- **Always-hidden form fields use `s_website_form_dnone`, not `d-none`.** The form Interaction sets
+  or removes `d-none` on every `.s_website_form_field` from its visibility conditions
+  (`s_website_form/form.js`).
+- **Date inputs need a `.s_website_form_field` wrapper.** The form Interaction reads
+  `closest(".s_website_form_field").dataset.type` and throws without it.
+- **The en_US time format is 12-hour in 19+** (`%I:%M:%S %p` in `res.lang` data): date pickers post
+  `12/15/2099 10:30:00 AM`. Server code must parse posted dates with the language's formats.
+- **The signup Interaction (`auth_signup`) adds a loading effect on every submit.** A custom async
+  check must capture `submit` before the core handler, or the button stays disabled.
+- **`renderToElement` refuses a template with several root nodes:** use `renderToFragment`.
+- **Theme and shop options set in the old site's editor are data, not code** (fonts, palette,
+  header, products per row, active shop views). Read them from the live site and re-apply them with
+  `website.assets.make_scss_customization`, the website fields and view toggles.

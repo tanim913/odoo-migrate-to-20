@@ -128,3 +128,8 @@ stops with `null value in column "operation"`. `scan.py` rule `ir-access-operati
   an administrator. Check `implied_ids` of the module's groups; drop the admin implication unless the
   module needs it, and note that old versions stored implied memberships per user (the data upgrade
   must review those users).
+
+## Domain fields
+
+- **Fields used in an `ir.access` domain must be stored or have a `search=` method**; a converted
+  rule pointing at a plain compute fails when evaluated.

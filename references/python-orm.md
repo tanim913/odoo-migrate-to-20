@@ -140,3 +140,35 @@ can reproduce what `payment.data._cron_process` does for one transaction: `_reco
 transaction (and its source) and the pending `payment.data`, `_process(payload)` with
 `payment_safe_write=True`, delete the row, then `_try_post_process()`, all in a savepoint so the
 data stay queued for the cron if anything fails. Portal and webhook flows keep `_record` alone.
+
+## More API changes hit in practice (verify each in the 20 source before relying on it)
+
+| Since | Old | Odoo 20 | Kind |
+|---|---|---|---|
+| 20 | selection field written `''` (17 stored NULL) | write `False`; `''` raises "Wrong value" | R |
+| 20 | `copy()` override using `self.name` etc. (17 ran `ensure_one`) | `copy()` duplicates many records; put per-record logic in `copy_data(default)` (returns a list) | R |
+| 20 | `default_get(self, fields_list)` | `default_get(self, fields)`: only keyword callers break | R |
+| 20 | override `read_group` | `read_group` is `@typing.final`; custom aggregates go in `_read_group_select(table, aggregate_spec)` | B |
+| 20 | `ir.attachment` `datas` | `raw` (bytes); `create({'datas': ...})` silently drops it (empty file); reading a binary gives a `BinaryValue` (`.content` raw bytes, `.to_base64()`) | S (scan `attachment-datas`) |
+| 18 | `product.template._sanitize_vals(vals)` copied from 17 core `write` | delete the call (`detailed_type` is gone) | R (scan `template-sanitize-vals`) |
+| 19 | `_message_compute_author(..., raise_on_email=...)` | no `raise_on_email` | R |
+| 18 | `mail.message.message_format()` | return a `Store` payload (`{store_data, message_id}`) | R |
+| 19 | `discuss.channel.livechat_active` | `livechat_end_dt` | R |
+| 20 | `/im_livechat/init` route | gate availability in `im_livechat.channel._is_livechat_available` | S |
+| 20 | `stock.return.picking(.line)` wizards | `stock.picking.action_return`, `_create_return()`, `_prepare_return_*_default_values`; return moves start at quantity 0 (set each move's quantity) | B |
+| 20 | `crm.lead.action_set_lost` writing probability with the archive | archives, then writes `probability: 0` separately: lost-reacting `write` overrides check both | S |
+| 20 | `helpdesk.ticket.type`, `ticket_type_id` (enterprise) | removed | B |
+
+Other facts:
+- **SQL-view models (`_auto = False`) need `_depends`**, or a search right after a write in the
+  same transaction reads unflushed values.
+- **A literal `%` in an `odoo.tools.SQL` template is `%%`**, even inside an SQL comment.
+- **Writing `ir.attachment.db_datas` directly skips size, checksum and index**: write `raw`.
+- **`fields.NO_ACCESS`** as a field's `groups` makes a server-only field impossible to set over RPC.
+- **`cr.postcommit` callbacks survive a savepoint rollback** (only precommit is cleared): side effects
+  registered inside a rolled-back savepoint still run at commit. Re-check the committed state first.
+- **"Field x: unknown parameter 'tracking'"** on a model that is not `mail.thread`: remove `tracking=`.
+  Adding `mail.thread` instead creates followers and messages on every write.
+- **`_()` in a module-level helper called outside a request** (unit test, cron) logs "no translation
+  language detected" as a WARNING with a stack trace that looks like a failure in log triage. Pass
+  `env` and use `env._()`.

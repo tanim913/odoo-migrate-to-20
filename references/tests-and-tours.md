@@ -260,3 +260,28 @@ check script on a fresh database and in more than one order before trusting it.
   the current user instead.
 - **Tracking values are written at commit time** in 20: in a rollback-only test check
   `record._track_get_fields()` rather than the chatter messages.
+
+### More test lessons (Odoo 20)
+
+- **Reports render HTML in test mode.** Assert `%PDF` only under
+  `with_context(force_report_rendering=True)`.
+- **HOOT:** its date mock is a class, so `Intl.DateTimeFormat()` without `new` breaks every unit
+  test of the database; mail `Store` models are keyed by model name (`store["discuss.channel"]`).
+- **Get registry entries by import, not by key at module top level:** a top-level
+  `registry.category(...).get("X")` fails when another bundle (e.g. `web.assets_unit_tests`) loads
+  files in another order. A wrapper class that only inherits a test method of `test_js.py` selects 0
+  tests: redeclare the method.
+- **`-u` runs only the tests of updated addons**: update earlier test addons explicitly.
+- **Assert the database, not the cache:** `env.flush_all()` / `invalidate_all()` before checking
+  stored computes or the effect of raw SQL.
+- **Edge cases in flow tests:** zero quantity, negative amounts, another company, a deleted related
+  record.
+
+### Comparing flows with the old version (parity runner)
+
+Page snapshots show structure; behaviour needs the outcome. Seed the same data on both versions with
+XML IDs (ids differ between databases), drive each flow over HTTP as each role (login, CSRF form
+posts, JSON-RPC as the pages do), then read the resulting records over XML-RPC and diff them. Classify
+every difference: defect on 20 (fix), security fix, old-version bug, core behaviour change, or runner
+artefact. It found defects no test covered (a checkout step no longer skipped, a cart given to the
+wrong partner, a configurator price).

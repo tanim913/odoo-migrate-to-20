@@ -58,3 +58,17 @@ position.
   string, but check actions defined in Python too (`'view_mode': 'tree,form'` becomes
   `'list,form'`, `'views': [(False, 'tree')]` becomes `'list'`).
 - `ir.actions.act_window` `view_type` field: removed since 13; delete it if present.
+
+## More view and action changes (hit in practice)
+
+- **An inherit placed between a core `t-if` and its `t-else`/`t-elif` breaks the page at render**
+  ("t-elif directive must be preceded by t-if"); install and xpath checks pass. Check with
+  `scripts/qweb_if_chain_check.py`; anchor the xpath elsewhere.
+- **`ir.actions.act_window` `target='inline'` is removed:** use `'current'` (install blocker; scan
+  `action-target-inline`).
+- **Partner form:** the VAT field sits in a one-line `div name="identifiers"`; an xpath `after` the
+  `vat` field lands inside it. Anchor on the `identifiers` block.
+- **Login page:** the password is inside an `input-group` with an `o_show_password` button; extra
+  classes on that group break the layout.
+- **Settings:** an `<app name="...">` must equal the `module` key in the settings action context, or
+  the page throws "reading 'key'".

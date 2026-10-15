@@ -79,6 +79,8 @@ PY
     fi
     "$ODOO20_PYTHON" -c "import websocket" 2>/dev/null && ok "websocket-client (browser smoke tests)" \
         || warn "websocket-client missing: browser smoke tests are SKIPPED by Odoo  ->  $ODOO20_PYTHON -m pip install websocket-client"
+    ( "$ODOO20_PYTHON" -c "import _rl_renderPM" || "$ODOO20_PYTHON" -c "import rlPyCairo" ) 2>/dev/null && ok "ReportLab PNG renderer (barcodes in reports)" \
+        || warn "rl-renderPM missing (Odoo pins it for win32 only): barcode images in reports fail  ->  $ODOO20_PYTHON -m pip install rl-renderPM"
 else
     bad "ODOO20_PYTHON: no Python >= 3.12 with Odoo 20 requirements found. Create a venv and pip install -r requirements.txt, then set ODOO20_PYTHON"
 fi

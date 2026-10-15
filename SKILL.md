@@ -16,7 +16,7 @@ compatibility: >-
   Agent-neutral (Agent Skills format). Needs a shell with bash, python3, git and rsync; an Odoo 20
   checkout with a Python 3.12+ venv; PostgreSQL 16+. Chrome/Chromium for browser tests.
 metadata:
-  version: "1.8.0"
+  version: "1.9.0"
   odoo-target: "20.0"
   odoo-sources: "14.0-19.0"
 ---
@@ -139,7 +139,7 @@ review: through your agent's skill mechanism if they are installed, or by readin
 
 ```bash
 $S/prepare.sh <source_module_dir> <project> [<from_version>]   # prints DEST, FROM, BASELINE
-python3 $S/scan.py <DEST> --summary                           # "before" numbers for the report
+$ODOO20_PYTHON $S/scan.py <DEST> --summary                           # "before" numbers for the report
 ```
 
 Then fix the manifest by hand:
@@ -155,7 +155,7 @@ Commit `[MIG] <module>: manifest`.
 
 ```bash
 $S/run_upgrade_code.sh <DEST> <FROM>
-python3 $S/scan.py <DEST> --fix-tesc --summary     # mechanical t-esc/t-raw -> t-out
+$ODOO20_PYTHON $S/scan.py <DEST> --fix-tesc --summary     # mechanical t-esc/t-raw -> t-out
 ```
 
 - Read every WARNING/ERROR line the first command prints, especially from ir-access
@@ -167,9 +167,9 @@ Commit `[MIG] <module>: upgrade_code + t-out`.
 ### 3. Scan
 
 ```bash
-python3 $S/scan.py <DEST>            # grouped by severity/area, with file:line
-python3 $S/scan.py <DEST> --json     # for subagents
-python3 $S/scan.py <DEST> --icons    # fa-* names to map
+$ODOO20_PYTHON $S/scan.py <DEST>            # grouped by severity/area, with file:line
+$ODOO20_PYTHON $S/scan.py <DEST> --json     # for subagents
+$ODOO20_PYTHON $S/scan.py <DEST> --icons    # fa-* names to map
 ```
 
 Areas: `manifest python renames controllers views qweb security backend-js website-js website
@@ -270,6 +270,11 @@ $S/install_test.sh $MIG20_TARGET_ROOT/<project> <module>
   installed: `MODULE_DIR=<module dir> odoo-bin shell -d <db> --no-http < $S/xpath_check.py`.
 - After `RESULT: CLEAN`, run the registry check (removed hooks still overridden, missing compute
   methods): `MODULE_DIRS=<module dir> odoo-bin shell -d <db> --no-http < $S/registry_check.py`.
+- For website or portal modules, also check that no inherited view separated a `t-else`/`t-elif`
+  from its `t-if` (the page only fails when opened):
+  `odoo-bin shell -d <db> --no-http < $S/qweb_if_chain_check.py`.
+- Run `-u <module>` once on the same database after the clean install: it catches data that is
+  not idempotent, `noupdate` records and XML IDs that changed model.
 - For every new kind of break you had to fix by hand, add a `scan.py` rule or check and a line in
   `lessons-learned.md`.
 
@@ -313,6 +318,19 @@ Review `git -C $MIG20_TARGET_ROOT/<project> diff <BASELINE>..HEAD -- <module>`:
 - with Odoo's `odoo-review` skill (installed, or read from `$ODOO20_SERVER/skills/odoo-review/SKILL.md`);
 - otherwise with its checklist: correctness, security (`sudo`, public routes, ACLs), and matching
   core style.
+
+Whichever reviewer, check these in the migrated code:
+- every `sudo().browse(<id from the request>)` is followed by an ownership check, on `auth='user'`
+  routes too; sudo helpers callable from RPC carry `@api.private` (controllers-http.md);
+- no `write`/`search` inside a loop over records; `_read_group` instead of `sum(search().mapped())`;
+  a non-stored compute shown in a list does not search per record;
+- raw SQL uses parameters or `SQL(...)`, never f-strings; `flush_model()` before reading,
+  `invalidate_model()` after writing;
+- `@api.depends` paths use the renamed fields, plus `depends_context('company')` where the value
+  depends on the company;
+- `ondelete` of the module's Many2one fields kept as in the old version;
+- `ir.config_parameter` read with `sudo()` only for values that may be shown to the user;
+- `copy()` overrides keep no singleton logic (20 copies many records at once; python-orm.md).
 
 Fix blocking findings, then re-run step 5.
 

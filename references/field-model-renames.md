@@ -28,7 +28,7 @@ per area. Always confirm the field in 20:
 | 19 | `uom.uom` | `category_id`, `factor_inv`, `uom_type` | `relative_factor`, `relative_uom_id` |
 | 19 | `product.template` | `uom_po_id`, `packaging_ids` | removed |
 | 19 | `sale.order.line` | `tax_id`, `product_uom` | `tax_ids`, `product_uom_id` |
-| 19 | `purchase.order.line` | `taxes_id`, `product_uom` | `tax_ids`, `product_uom_id` |
+| 19/20 | `purchase.order.line` | `taxes_id`, `product_uom` | `tax_ids`; **`uom_id`** in 20 (`product_uom_id` only in 19) |
 | 19 | `hr.contract` model | – | `hr.version` |
 | **20** | `stock.move`, `stock.move.line` | `product_uom`, `product_uom_id` | **`uom_id`** |
 | **20** | `res.partner` | `company_type` | removed (`is_company`); `default_company_type` in contexts too. A `<field name="company_type"/>` in a view stops the install |

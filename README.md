@@ -324,6 +324,7 @@ To try the module, add the project folder to your Odoo 20 `addons_path`.
 | `scripts/smoke_test.py` | generate a browser smoke-test module (clickbot, website pages, flow tours) |
 | `scripts/xpath_check.py` | list every view locator Odoo 20 cannot apply, in one run, without installing the module (`odoo-bin shell`) |
 | `scripts/registry_check.py` | after the install: overrides of hooks removed from Odoo 20 (real MRO) and fields whose compute/inverse/search method does not exist (`odoo-bin shell`) |
+| `scripts/qweb_if_chain_check.py` | after the install: QWeb pages where an inherited view separated a `t-else`/`t-elif` from its `t-if` (the page fails only when opened; `odoo-bin shell`) |
 
 Knowledge lives in `references/`: 15 files on the upgrade tool, manifest, Python/ORM, field
 renames, controllers, views, QWeb/reports/mail, security, backend Owl 3, website interactions,

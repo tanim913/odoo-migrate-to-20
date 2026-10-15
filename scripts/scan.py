@@ -20,6 +20,9 @@ import re
 import sys
 from pathlib import Path
 
+if sys.version_info < (3, 9):  # ast.unparse; run with the Odoo 20 venv python ($ODOO20_PYTHON)
+    sys.exit("scan.py needs Python 3.9+: run it with $ODOO20_PYTHON (the Odoo 20 venv)")
+
 PY, XML, JS, SCSS, CSV, MANIFEST = "py", "xml", "js", "scss", "csv", "manifest"
 
 # (id, area, severity, kinds, where, regex, message, reference, auto)
@@ -106,14 +109,35 @@ RULES = [
     ("renamed-detailed-type", "renames", "BLOCKER", [PY, XML, JS], "any", r"\bdetailed_type\b", "detailed_type -> type + is_storable", "field-model-renames.md", ""),
     ("renamed-cron", "renames", "BLOCKER", [XML, PY], "any", r"\b(numbercall|doall)\b", "ir.cron numbercall/doall removed", "field-model-renames.md", ""),
     ("renamed-report-file", "renames", "BLOCKER", [XML, PY], "any", r"name=\"report_file\"|['\"]report_file['\"]", "ir.actions.report report_file removed", "field-model-renames.md", ""),
-    ("renamed-line-tax", "renames", "BLOCKER", [PY, XML, JS], "any", r"\btax_id\b|\btaxes_id\b", "sale/purchase line tax_id/taxes_id -> tax_ids (check model!)", "field-model-renames.md", ""),
-    ("renamed-product-uom", "renames", "BLOCKER", [PY, XML, JS], "any", r"\bproduct_uom\b(?!_)", "product_uom -> product_uom_id (sale/purchase lines) / uom_id (stock.move)", "field-model-renames.md", ""),
+    ("renamed-line-tax", "renames", "BLOCKER", [PY, XML, JS], "any", r"\btax_id\b|(?<!product_id\.)(?<!product\.)\btaxes_id\b", "sale/purchase line tax_id/taxes_id -> tax_ids (check model! product taxes_id is unchanged)", "field-model-renames.md", ""),
+    ("renamed-product-uom", "renames", "BLOCKER", [PY, XML, JS], "any", r"\bproduct_uom\b(?!_)", "product_uom -> product_uom_id (sale.order.line) / uom_id (purchase.order.line, stock.move)", "field-model-renames.md", ""),
     ("renamed-partner", "renames", "RUNTIME", [PY, XML, JS], "any", r"\bdefault_company_type\b|\b\w*(?:partner|patient|customer)\w*\.(?:company_type|mobile)\b(?![-.\w])|\baddress_home_id\b",
      "res.partner company_type/mobile (and hr address_home_id) removed in 20: use is_company / phone", "field-model-renames.md", ""),
     ("view-company-type", "renames", "BLOCKER", [XML], "server", r"<field name=\"company_type\"",
      "res.partner.company_type removed in 20: the view does not load (use is_company)", "field-model-renames.md", ""),
     ("renamed-analytic", "renames", "BLOCKER", [PY, XML], "any", r"\banalytic_tag_ids\b|\banalytic_account_id\b", "analytic fields -> analytic_distribution (check model)", "field-model-renames.md", ""),
     ("renamed-mail-template", "renames", "BLOCKER", [XML, PY], "any", r"name=\"report_template\"", "report_template -> report_template_ids", "field-model-renames.md", ""),
+    # ---- removed in 18-20 (checked: 0 hits on 20 core + enterprise) ----------
+    ("checkout-express", "website-sale", "SILENT", [PY, XML, JS], "any", r"[?&]express=1",
+     "/shop/checkout ignores express=1 in 20: use try_skip_step=true", "website-sale-portal.md", ""),
+    ("template-sanitize-vals", "python", "RUNTIME", [PY], "any", r"product_tmpl_id\._sanitize_vals\(",
+     "product.template._sanitize_vals removed (copied 17 core write): delete the call", "python-orm.md", ""),
+    ("action-target-inline", "views", "BLOCKER", [XML, PY], "any", r"""name="target">\s*inline\s*<|['"]target['"]\s*:\s*['"]inline['"]""",
+     "act_window target 'inline' removed: use 'current'", "views-xml-data.md", ""),
+    ("message-format", "python", "RUNTIME", [PY], "any", r"\.message_format\(",
+     "mail.message.message_format() removed: return a Store payload", "python-orm.md", ""),
+    ("session-logout", "controllers", "RUNTIME", [PY], "any", r"request\.session\.logout\(",
+     "Session.logout() removed: odoo.http.session.logout(request.session, keep_db=True)", "controllers-http.md", ""),
+    ("compute-author-raise", "python", "RUNTIME", [PY], "any", r"\braise_on_email\b",
+     "_message_compute_author() lost raise_on_email (19)", "python-orm.md", ""),
+    ("livechat-active", "renames", "RUNTIME", [PY, XML, JS], "any", r"\blivechat_active\b",
+     "discuss.channel.livechat_active removed: use livechat_end_dt", "python-orm.md", ""),
+    ("return-picking-wizard", "python", "BLOCKER", [PY, XML], "any", r"""['"]stock\.return\.picking(?:\.line)?['"]|act_stock_return_picking""",
+     "stock.return.picking wizards removed: stock.picking action_return / _create_return", "python-orm.md", ""),
+    ("helpdesk-ticket-type", "renames", "BLOCKER", [PY, XML, JS], "any", r"\bticket_type_id\b|helpdesk\.ticket\.type\b",
+     "helpdesk.ticket.type / ticket_type_id removed in 20", "python-orm.md", ""),
+    ("attachment-datas", "python", "SILENT", [PY, XML], "any", r"""\.datas\b|name="datas"|['"]datas['"]\s*:\s*(?:base64|b64|data|pdf|content|file|attach)""",
+     "ir.attachment datas removed: create() drops it (empty file); use raw, read .raw.content", "python-orm.md", ""),
     # ---- controllers ------------------------------------------------------
     ("route-json", "controllers", "WARN", [PY], "any", r"type\s*=\s*['\"]json['\"]", "type='json' -> 'jsonrpc'", "controllers-http.md", "upgrade_code 18.1 (controllers/ only)"),
     ("http-imports", "controllers", "BLOCKER", [PY], "any", r"from odoo\.http import[^\n]*\b(content_disposition|Stream|STATIC_CACHE|serialize_exception|SessionExpiredException|Session\b|db_list|db_filter|dispatch_rpc|root)\b",
@@ -265,7 +289,10 @@ def manifest_checks(module: Path):
     siblings = module.parent
     for dep in manifest.get("depends", []) if search else []:
         if not any((p / dep / "__manifest__.py").exists() for p in search):
-            where = "custom module: migrate it first" if (siblings / dep / "__manifest__.py").exists() else \
+            sib = siblings / dep / "__manifest__.py"
+            if sib.exists() and re.search(r"""['"]version['"]\s*:\s*['"]20\.""", sib.read_text(errors="replace")):
+                continue  # sibling already migrated to 20
+            where = "custom module: migrate it first" if sib.exists() else \
                 "not in Odoo 20 core/enterprise: removed/merged or third-party (see manifest-and-modules.md)"
             findings.append((f"depends-{dep}", "BLOCKER", f"depends '{dep}': {where}"))
     for key in ("data", "demo"):

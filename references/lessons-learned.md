@@ -339,3 +339,36 @@ detected. If `scan.py` could have caught it, add a rule there too.
 - Scanner: the external-XML-ID check skipped commented-out markup for regex rules only; it now
   ignores comments too. New rules checked on all 20 core and enterprise modules: one hit, a real
   core leftover (`event.portal_my_events` loses its breadcrumbs).
+
+## 2026-10-10…15: integration, catch-up to production code, flow comparison with the old version
+
+- **Old-version comparison database for a newer production branch:** copy the existing one
+  (`CREATE DATABASE … TEMPLATE …`) and `-u` only the changed modules with the production code first
+  on the addons path. It reuses the seeded users and avoids the old code's fresh-install blockers.
+  Check that the old routes still give the same status before explaining new differences.
+- **A SQL-view model whose `init()` selects columns added by a module that depends on it** breaks
+  `-u` (the view is recreated before that module loads). Old version: two passes, the first with a
+  temporary copy whose `init()` returns early. New version: move the model to the module owning the
+  columns (python-orm.md `_depends`).
+- **Moving records (model, views, menu, cron) from module A to module B:** A's end-of-update cleanup
+  deletes them. Pre-migrate of A: `UPDATE ir_model_data SET module='B' WHERE module='A' AND name IN
+  (...)`; prove it with a control run without the script.
+- **Modules imported later from other developers need the same scan.** A copied 17 core line
+  (`self.product_tmpl_id._sanitize_vals(vals)`) crashed every product write; the override and
+  signature checks do not see calls to removed methods on another record.
+- **Scope check against the production branch:** diff the module folder lists (`comm`), not only the
+  migrated modules: modules that exist only in production (one extending checkout, say) belong in the
+  scope decision.
+- **Flow comparison (tests-and-tours.md "parity runner")** found 8 defects on 20 after every test was
+  green: checkout step no longer skipped (`express`), a staff order given back to the staff user's
+  partner, `int(False)` sent as an id, configurator plan price, a removed template method, a hidden
+  duplicate checkbox, an invitation link, an undeclared dependency used at runtime.
+- **Scanner:** new rules `checkout-express`, `template-sanitize-vals`, `action-target-inline`,
+  `message-format`, `session-logout`, `compute-author-raise`, `livechat-active`,
+  `return-picking-wizard`, `helpdesk-ticket-type`, `attachment-datas` (0 hits on 20 core and
+  enterprise except `social_demo` data: a real core leftover, its images are empty). `scan.py` stops
+  with a clear message on Python < 3.9 (run it with `$ODOO20_PYTHON`); siblings already at version
+  20.0 are no longer reported as "migrate it first"; product `taxes_id` is no longer flagged.
+  `purchase.order.line` uses `uom_id` in 20 (the reference said `product_uom_id`, true only in 19).
+- **New script `qweb_if_chain_check.py`** and a `doctor.sh` check for `rl-renderPM` (Odoo pins it for
+  win32 only; barcode images in reports fail without it).

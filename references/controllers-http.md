@@ -71,3 +71,17 @@ Templates: `t-attf-href="/x/unsubscribe/#{object.id}?token=#{object.x_unsubscrib
 separate scope per purpose, limit what the link may do (e.g. account set-up only while the user has
 never logged in: `not user.login_date`), and send JSON follow-ups (feedback forms) with the same
 token. Links already sent without a token stop working: redirect them to the standard page.
+
+## More route and session changes (hit in practice)
+
+- **`auth='none'` routes are read-only by default** (`readonly` defaults to `auth == 'none'`,
+  `odoo/http/routing_map.py`): a POST endpoint that writes needs `readonly=False`.
+- **`request.session.logout()` is gone:** `from odoo.http.session import logout;
+  logout(request.session, keep_db=True)` (scan `session-logout`).
+- **Every sudo helper reachable over RPC carries `@api.private`**, not only token helpers.
+- **Every `sudo().browse(<id from the request>)` needs an ownership check right after it**, on
+  `auth='user'` and portal routes too; keep the sudo as narrow as the check allows.
+- **Inbound webhooks** (`auth='public'`, often `csrf=False`) check a signature or shared secret with
+  `consteq`; the secret lives in config or a system parameter, not in code.
+- **One-time processing** (webhook ids, codes, tokens): lock with `record.try_lock_for_update()`
+  (`FOR UPDATE SKIP LOCKED`, 19+) as payment post-processing does.

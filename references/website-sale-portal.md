@@ -122,3 +122,43 @@ If replacing an inherited home view with portal.entry under the same XML ID,
 a clean install cannot prove the old binding upgrades. Retire/remap the legacy
 ir.ui.view XML ID in a pre-migration before creating the new model's record.
 Preserve useful legacy records inactive and test repeatability.
+
+## Checkout, cart and configurator behaviour in 20
+
+Each point was hit while comparing flows with the old version; check overrides and custom JS for them.
+
+- **`/shop/checkout?express=1` is ignored.** The parameter is `try_skip_step=true`
+  (`website_sale/controllers/main.py`, `shop_checkout`). Even when the step is skipped, the checkout
+  values are prepared and the delivery method is set first, so override side effects still run
+  (scan `checkout-express`).
+- **The cart follows the logged-in user.** On every non-readonly request, 20 gives the cart back to
+  the user's partner when the two differ (`website.py`, cart partner check). To hand a cart to another
+  partner (staff ordering for a customer), call `order._update_address(partner_id, ['partner_id'])`.
+- **The anonymous cart's customer is the public partner, which is archived.** A guard that drops
+  carts or orders with an archived customer must skip `order._is_anonymous_cart()`, or no visitor can
+  check out.
+- **With `sale_subscription`, the product configurator prices a recurring product at its default
+  plan** and shows the plan label. When the quotation line is one-time, override
+  `_get_configurator_price` (drop `plan_id`) and `_get_additional_configurator_data` (drop
+  `price_info`, `subscription_plans`) on `product.template`.
+- **Configurator routes** are `/sale/product_configurator/get_values|create_product|update_combination`
+  (`type='jsonrpc'`) and take `ptav_ids`, not `combination`.
+- **`sale.order.line.technical_price_unit` (18+):** the price compute resets `price_unit` unless it
+  differs from `technical_price_unit` (a manual price). Set custom prices after the native compute,
+  and test them on stored values after `flush_all()` + `invalidate_all()`.
+- **The terms checkbox on the payment page is rendered twice** (desktop and mobile), so ids repeat.
+  Custom JS must work inside its own copy and act on the visible one (`el.offsetParent`).
+- **Cart service (`website_sale/static/src/js/cart_service.js`):** `isBuyNow: true` redirects to the
+  cart, `isConfigured: true` stays on the page; RPC errors from add are already shown as a warning
+  notification, so raise a `UserError` on the server instead of a custom toast.
+- **The preferred delivery method is chosen on the server** when checkout renders; browser-side
+  carrier pre-selection is redundant.
+- **The checkout Interaction binds a click on every `.card` in `#shop_checkout`** (it treats them as
+  address cards): custom cards there post `/shop/update_address` without a partner. Use another class.
+- **The product page reads `product_id` from `#add_to_cart_wrap button[name=add_to_cart]`.** Hide that
+  button if needed; removing it breaks the combination RPC.
+- **Delivery addresses need an email**: old addresses without one are sent back to the address form.
+- **`website_sale_subscription` clears `plan_id`** after a cart update when no line is recurring:
+  routes that set a plan must keep a recurring product in the cart.
+- **Shop grid markup:** products are `div.oe_product` columns, not `td.oe_product`; SCSS on the table
+  stops matching. The visitor's grid/list toggle is gone (an editor option now): not a lost feature.
